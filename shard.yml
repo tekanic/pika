@@ -2,7 +2,7 @@ name: pika
 version: 0.1.0
 
 authors:
-  - Michael (Tekanics LLC)
+  - tekanic
 
 description: A Grape-inspired REST API framework for Crystal
 
