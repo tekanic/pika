@@ -1,6 +1,14 @@
-# Pika
+<p align="center">
+  <img src="assets/pika-wordmark.svg" alt="Pika" width="260">
+</p>
 
-[![CI](https://github.com/tekanic/pika/actions/workflows/ci.yml/badge.svg)](https://github.com/tekanic/pika/actions/workflows/ci.yml)
+<p align="center">
+  <a href="https://github.com/tekanic/pika/actions/workflows/ci.yml">
+    <img src="https://github.com/tekanic/pika/actions/workflows/ci.yml/badge.svg" alt="CI">
+  </a>
+</p>
+
+<img src="assets/pika-mascot.svg" alt="" width="180" align="right">
 
 A Grape-inspired REST API framework for Crystal — declarative DSL, compile-time param validation, zero external dependencies.
 
