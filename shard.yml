@@ -1,0 +1,11 @@
+name: pika
+version: 0.1.0
+
+authors:
+  - Michael (Tekanics LLC)
+
+description: A Grape-inspired REST API framework for Crystal
+
+crystal: ">= 1.0.0"
+
+license: MIT

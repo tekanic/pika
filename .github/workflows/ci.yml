@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "feat/**"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  test:
+    name: Specs (${{ matrix.crystal }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        crystal: ["latest", "nightly"]
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Crystal
+        uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: ${{ matrix.crystal }}
+
+      - name: Run specs
+        run: crystal spec --error-trace
+
+      - name: Validate OpenAPI output (structural)
+        run: |
+          crystal eval '
+            require "./src/pika"
+
+            class SmokeAPI < Pika::API
+              info title: "Smoke", version: "0.0.1"
+              version "v1"
+              resource :ping do
+                get do "pong" end
+              end
+            end
+
+            doc = JSON.parse(SmokeAPI.openapi_doc)
+            abort "missing openapi field"  unless doc["openapi"]?.try(&.as_s) == "3.1.0"
+            abort "missing info.title"     unless doc["info"]?["title"]?.try(&.as_s) == "Smoke"
+            abort "missing paths"          unless doc["paths"]?.try(&.as_h).try(&.any?)
+            puts "OpenAPI structure OK"
+          '

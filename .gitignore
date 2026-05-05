@@ -1,0 +1,6 @@
+/lib/
+/bin/
+/.shards/
+*.dwarf
+/bench/server
+/bench/server_mt

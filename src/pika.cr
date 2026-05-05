@@ -1,0 +1,8 @@
+require "./pika/version"
+require "./pika/error"
+require "./pika/router"
+require "./pika/params"
+require "./pika/openapi"
+require "./pika/entity"
+require "./pika/docs"
+require "./pika/api"
