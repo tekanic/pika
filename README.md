@@ -338,20 +338,59 @@ MyAPI.openapi       # => String (JSON)
 
 ### Serving the spec and Scalar UI
 
-`docs at:` mounts two routes directly on the API router:
+[Scalar](https://scalar.com) is a browser-based API reference UI. It renders your OpenAPI spec as an interactive explorer where you can read endpoint documentation, inspect request/response schemas, and send live test requests directly from the browser.
+
+Enable it by adding `docs at:` to your API class:
 
 ```crystal
 class MyAPI < Pika::API
+  info title: "My API", version: "1.0.0"
   docs at: "/docs"
 end
+
+MyAPI.run
 ```
 
-| Route | Response |
-|---|---|
-| `GET /docs` | Scalar interactive UI (HTML) |
-| `GET /docs/openapi.json` | OpenAPI 3.1 JSON spec |
+This mounts two routes on the running server:
 
-The Scalar UI loads the spec from `/docs/openapi.json` at runtime, so the displayed documentation always reflects the live server — no build step or static file generation required.
+| Route | What it serves |
+|---|---|
+| `GET /docs` | Scalar HTML UI — open this in a browser |
+| `GET /docs/openapi.json` | Raw OpenAPI 3.1 JSON spec |
+
+#### Viewing the docs
+
+Start your server and navigate to the docs URL in any browser:
+
+```sh
+crystal run src/my_api.cr
+# → open http://localhost:3000/docs
+```
+
+Scalar loads the spec from `/docs/openapi.json` at page load time, so the UI always reflects the currently running server. There is no build step, no static file generation, and no separate docs server to run.
+
+#### What you can do in the UI
+
+- **Browse endpoints** — all routes are listed in the left sidebar, grouped by resource
+- **Read parameter docs** — required/optional params, types, constraints, and descriptions are shown per operation
+- **Inspect request schemas** — `POST`/`PUT`/`PATCH` body schemas are rendered with field names and types
+- **Send test requests** — each operation has a "Try" panel where you can fill in parameters and fire a real HTTP request against the running server, with the response shown inline
+
+#### Path customisation
+
+The `"/docs"` path is a default — pass any path prefix:
+
+```crystal
+docs at: "/api-reference"
+# → GET /api-reference
+# → GET /api-reference/openapi.json
+```
+
+#### CDN dependency
+
+Scalar's JavaScript is loaded from jsDelivr (`cdn.jsdelivr.net`) at runtime. The browser serving `/docs` needs outbound internet access to render the UI. The JSON spec endpoint (`/docs/openapi.json`) has no external dependency and works fully offline.
+
+For air-gapped or fully offline environments, fetch the spec from `/docs/openapi.json` and load it into any OpenAPI-compatible viewer (Swagger UI, Redoc, Stoplight Elements, etc.).
 
 ### Route descriptions
 
