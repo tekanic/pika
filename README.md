@@ -48,6 +48,7 @@ MyAPI.run  # 0.0.0.0:3000
 - **Scalar UI** — `docs at: "/docs"` mounts an interactive API explorer + JSON spec endpoint directly on the API router
 - **Concurrency** — single-binary multi-thread via `--threads N` (`preview_mt`); multi-process horizontal scaling via `reuse_port: true` on `MyAPI.run`
 - **Clear ORM bridge** — `pika-clear` shard (separate, versioned independently): auto-derives OpenAPI schemas, request validation, and entity exposure from `Clear::Model` column definitions
+- **Authentication** — `pika-auth` shard (separate, versioned independently): Bearer token, API key, and HTTP Basic strategies with class-level defaults and per-resource overrides; failed auth raises `Pika::UnauthorizedError`
 
 ---
 
@@ -72,6 +73,16 @@ dependencies:
     github: tekanic/pika
   pika-clear:
     github: tekanic/pika-clear
+```
+
+For authentication strategies, also add `pika-auth`:
+
+```yaml
+dependencies:
+  pika:
+    github: tekanic/pika
+  pika-auth:
+    github: tekanic/pika-auth
 ```
 
 ---
@@ -530,6 +541,95 @@ end
 
 ---
 
+## Authentication (`pika-auth`)
+
+`pika-auth` is a companion shard that adds pluggable authentication strategies to Pika. It is versioned and released independently so you only pull it in when you need it.
+
+### What it provides
+
+| Feature | Description |
+|---|---|
+| `BearerToken` | Reads `Authorization: Bearer <token>` and validates via a block |
+| `ApiKey` | Reads from a configurable header (default `X-API-Key`) and/or query param |
+| `Basic` | Reads `Authorization: Basic <base64(user:pass)>` and validates username + password |
+| `auth :name do...end` | Sets a class-level default strategy for all routes |
+| `public_resource :name do...end` | Marks a resource as open — no auth required |
+| `resource_auth :name, :strategy do...end` | Overrides the strategy for a single resource |
+
+### Setup
+
+```crystal
+# shard.yml
+dependencies:
+  pika:
+    github: tekanic/pika
+  pika-auth:
+    github: tekanic/pika-auth
+```
+
+```crystal
+require "pika"
+require "pika-auth"
+```
+
+### Class-level auth
+
+```crystal
+class MyAPI < Pika::API
+  include Pika::Auth
+
+  auth :bearer do |token|
+    token == ENV["API_TOKEN"]
+  end
+
+  resource :users do
+    get { User.all.to_json }   # bearer required
+  end
+end
+```
+
+`include Pika::Auth` installs a `before` hook. The `auth` macro registers a named strategy and sets it as the class-level default.
+
+### Per-resource overrides
+
+```crystal
+class MyAPI < Pika::API
+  include Pika::Auth
+
+  auth :bearer do |token|
+    UserToken.valid?(token)
+  end
+
+  # No auth on this resource
+  public_resource :health do
+    get { {status: "ok"}.to_json }
+  end
+
+  # Different strategy on this resource
+  resource_auth :webhooks, :api_key do |key|
+    key == ENV["WEBHOOK_SECRET"]
+  end do
+    post { handle_webhook }
+  end
+
+  resource :users do
+    get { User.all.to_json }   # bearer (class default)
+  end
+end
+```
+
+| Path | Strategy |
+|---|---|
+| `GET /health` | none (public) |
+| `GET /users` | bearer (class default) |
+| `POST /webhooks` | api_key (per-resource) |
+
+All three strategies raise `Pika::UnauthorizedError` on failure, which Pika converts to `401 Unauthorized`.
+
+See [tekanic/pika-auth](https://github.com/tekanic/pika-auth) for full documentation.
+
+---
+
 ## Clear ORM integration (`pika-clear`)
 
 `pika-clear` is a companion shard that bridges Pika and [Clear](https://github.com/anykeyh/clear), a PostgreSQL ORM for Crystal. It is versioned and released independently from Pika's core so that neither shard forces you to adopt the other.
@@ -705,6 +805,7 @@ crystal spec --error-trace  # with backtraces
 | v0.4 — OpenAPI 3.1, Scalar UI, CI | ✅ complete |
 | v0.5 — Clear ORM integration (`pika-clear` shard) | ✅ complete |
 | v0.6 — benchmarks, `reuse_port`, `params_from` | ✅ complete |
+| v0.7 — authentication strategies (`pika-auth` shard) | ✅ complete |
 | v1.0 — API freeze, docs site, launch | planned |
 
 ---
