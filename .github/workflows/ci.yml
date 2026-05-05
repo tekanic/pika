@@ -42,7 +42,7 @@ jobs:
 
             doc = JSON.parse(SmokeAPI.openapi_doc)
             abort "missing openapi field"  unless doc["openapi"]?.try(&.as_s) == "3.1.0"
-            abort "missing info.title"     unless doc["info"]?["title"]?.try(&.as_s) == "Smoke"
+            abort "missing info.title"     unless doc.dig?("info", "title").try(&.as_s) == "Smoke"
             abort "missing paths"          unless doc["paths"]?.try(&.as_h).try(&.any?)
             puts "OpenAPI structure OK"
           '
