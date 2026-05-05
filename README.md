@@ -299,6 +299,12 @@ crystal spec --error-trace  # with backtraces
 
 ---
 
+## Attribution
+
+Pika is heavily inspired by [Grape](https://github.com/ruby-grape/grape), the REST-like API framework for Ruby. The core DSL concepts — `resource`, `namespace`, `route_param`, `params`/`requires`/`optional`, `before`/`after` hooks, `helpers`, `mount`, and the entity layer — are direct adaptations of Grape's design to Crystal's type system and macro capabilities. If you've built APIs with Grape, Pika should feel immediately familiar.
+
+---
+
 ## Contributing
 
 Bug reports and pull requests are welcome on GitHub at [tekanic/pika](https://github.com/tekanic/pika).
