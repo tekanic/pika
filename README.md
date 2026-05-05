@@ -52,6 +52,16 @@ MyAPI.run  # 0.0.0.0:3000
 
 ---
 
+## Design principles
+
+1. **DSL feel over DSL fidelity.** Grape parity is a guide, not a constraint. Where Crystal idioms suggest a better path — type annotations instead of `type: Integer`, structs instead of hashes — Pika takes the Crystal path.
+2. **Macros over runtime metaprogramming.** Param validation, OpenAPI emission, and entity rendering are macro-expanded at compile time. There is no runtime reflection. A param typo is a compile error, not a 500.
+3. **Errors are first-class.** The error contract is part of the API surface and is specified as carefully as success responses. Every error class maps to an HTTP status and a structured body; the format is pluggable.
+4. **OpenAPI is not an afterthought.** Every DSL construct has a defined OpenAPI mapping. If something can be expressed in the DSL but not in the spec, that is a design bug, not a documentation gap.
+5. **Opinionated defaults, escape hatches everywhere.** RFC 7807 by default — but pluggable. Path versioning by default — but extensible. JSON by default — but format-negotiable. You should never need to fork the framework to change a default.
+
+---
+
 ## Installation
 
 Add to your `shard.yml`:
@@ -794,6 +804,126 @@ crystal spec --error-trace  # with backtraces
 
 ---
 
+## Migrating from Grape
+
+If you're coming from Ruby's Grape, most concepts map directly. The main differences are Crystal's type system (annotations instead of `type:` options) and a few naming choices.
+
+### Param declarations
+
+```ruby
+# Grape
+params do
+  requires :name,  type: String
+  requires :age,   type: Integer
+  optional :role,  type: String, default: "member", values: %w[member admin]
+end
+```
+
+```crystal
+# Pika
+params do
+  requires name : String
+  requires age  : Int32
+  optional role : String = "member", values: %w[member admin]
+end
+```
+
+Crystal's type annotation syntax replaces Grape's `type:` option. Nilable types (`String?`) replace `allow_blank: true`.
+
+### Accessing params
+
+```ruby
+# Grape — returns a hash
+params[:name]
+declared(params)[:name]
+```
+
+```crystal
+# Pika — returns a typed struct, compile-time checked
+declared_params.name   # String, no casting needed
+```
+
+### Presenting responses
+
+```ruby
+# Grape
+present user, with: API::Entities::User
+```
+
+```crystal
+# Pika — same concept, `using:` instead of `with:`
+present user, using: UserEntity
+```
+
+### Errors
+
+```ruby
+# Grape
+error!("Unauthorized", 401)
+error!({ message: "Not found" }, 404)
+```
+
+```crystal
+# Pika — raise typed error classes
+raise Pika::UnauthorizedError.new
+raise Pika::NotFoundError.new("Not found")
+```
+
+### Before/after hooks
+
+```ruby
+# Grape — implicit access to `params` and `request`
+before do
+  authenticate!
+end
+```
+
+```crystal
+# Pika — `env` is the explicit HTTP context
+before do |env|
+  raise Pika::UnauthorizedError.new unless valid_token?(env)
+end
+```
+
+### Mounting
+
+```ruby
+# Grape — path specified at mount site
+mount V2::UsersAPI => "/v2"
+```
+
+```crystal
+# Pika — sub-API owns its own version/path; no path arg at mount
+mount V2::UsersAPI
+```
+
+### Quick reference
+
+| Grape | Pika | Notes |
+|---|---|---|
+| `requires :name, type: String` | `requires name : String` | Crystal type annotation |
+| `optional :age, type: Integer, default: 0` | `optional age : Int32 = 0` | Default inline |
+| `params[:name]` | `declared_params.name` | Typed struct, not hash |
+| `present obj, with: Entity` | `present obj, using: Entity` | `using:` keyword |
+| `error!("msg", 422)` | `raise Pika::UnprocessableError.new("msg")` | Typed errors |
+| `mount API => "/path"` | `mount API` | Path set on the sub-API |
+| `before { ... }` | `before do \|env\| ... end` | Explicit env |
+| `helpers { def foo; end }` | `helpers do; def self.foo; end; end` | Class methods |
+| `use SomeMiddleware` | Crystal `HTTP::Handler` chain | Not framework-level |
+| `route_param :id` | `route_param :id do` | Same concept |
+| `namespace :v1` | `namespace :v1` | Identical |
+| `resource :users` | `resource :users` | Identical |
+| `version "v1", using: :path` | `version "v1"` | Path is the only mode in v1 |
+
+### What Pika does not have (yet)
+
+- **Header/Accept-header versioning** — path versioning only in v1; planned for v0.8.
+- **XML/MessagePack formatters** — JSON only in v1; planned for v0.9.
+- **`use` middleware** — compose at the `HTTP::Server` level instead; Pika exposes a standard `HTTP::Handler`.
+- **Built-in ORM integration** — use `pika-clear` for Clear, or write a before hook for any other ORM.
+
+---
+
 ## Roadmap
 
 | Milestone | Status |
@@ -806,6 +936,9 @@ crystal spec --error-trace  # with backtraces
 | v0.5 — Clear ORM integration (`pika-clear` shard) | ✅ complete |
 | v0.6 — benchmarks, `reuse_port`, `params_from` | ✅ complete |
 | v0.7 — authentication strategies (`pika-auth` shard) | ✅ complete |
+| v0.8 — header and Accept-header versioning | planned |
+| v0.9 — XML and MessagePack response formatters | planned |
+| v0.10 — async/streaming responses | planned |
 | v1.0 — API freeze, docs site, launch | planned |
 
 ---
