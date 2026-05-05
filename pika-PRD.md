@@ -3,7 +3,7 @@
 > **Name:** Pika
 >
 > **Author:** Michael (Tekanics LLC)
-> **Status:** Active — v0.6 benchmarks complete ✅ (PoC 1 ✅ PoC 2 ✅ PoC 3 ✅ · v0.1 ✅ · v0.2 ✅ · v0.3 ✅ · v0.4 ✅ · v0.5 ✅ · v0.6 benchmarks ✅)
+> **Status:** Active — v0.7 pika-auth complete ✅ (PoC 1 ✅ PoC 2 ✅ PoC 3 ✅ · v0.1 ✅ · v0.2 ✅ · v0.3 ✅ · v0.4 ✅ · v0.5 ✅ · v0.6 ✅ · v0.7 ✅)
 > **Last updated:** May 5, 2026
 
 ---
@@ -48,14 +48,14 @@ There is no Crystal equivalent of Grape. This is the gap Pika fills.
 
 - ORM integration in Pika's *core* (the Clear bridge ships as a separate shard; core stays agnostic).
 - Bridges for ORMs other than Clear (Jennifer, Granite, Crecto, etc. — community contributions welcome post-v1).
-- Authentication/authorization primitives beyond hooks for `before` filters (defer to ecosystem shards).
+- Authentication/authorization primitives in core (handled by the `pika-auth` shard).
 - GraphQL, gRPC, or non-REST protocols.
 - Built-in admin UI or scaffolding generators.
-- Header/query/Accept-header versioning in v1 (path-only; design extension points but don't ship).
+- Header/query/Accept-header versioning in v1 (path-only in v1; header and Accept-header versioning planned for v0.8).
 - Auto-generated client SDKs (the OpenAPI spec enables this externally).
 - SPA framework integration (React, Vue, Svelte, Solid). Pika emits OpenAPI; users wire up their own typed client generation.
 - Hypermedia/HTMX support. The dual-format response design was explored and deferred — see Section 9 for rationale. May revisit in v1.x or v2 based on user demand.
-- Server-side templating, ECR integration, or HTML rendering helpers. Pika v1.0 is JSON-only.
+- Server-side templating, ECR integration, or HTML rendering helpers. Pika v1.0 is JSON-first (XML/MessagePack via v0.9 formatters; HTML deferred post-v1).
 - Built-in client-side state management, virtual DOM, or component framework.
 
 ---
@@ -635,17 +635,49 @@ Results committed to [`bench/results.md`](bench/results.md).
 - Macro error message improvements (friendly messages for common DSL misuse).
 - Documentation site launch (with Clear integration as a featured walkthrough).
 
-### v1.0 — Stabilize (weeks 33–38)
+### v0.7 — Authentication (`pika-auth` shard) ✅
+
+- `pika-auth` shard at `tekanic/pika-auth`, separately versioned.
+- Three built-in strategies: `BearerToken` (`Authorization: Bearer <token>`), `ApiKey` (header and/or query param), `Basic` (`Authorization: Basic <base64>`).
+- Named strategy pattern: `auth :name do |cred| ... end` registers a strategy and sets the class-level default.
+- `public_resource :name do ... end` — opt a resource out of auth entirely.
+- `resource_auth :name, :strategy do |cred| ... end` — per-resource strategy override.
+- `Pika::Auth.check!` runtime method handles routing between default and per-path strategies.
+- 31 specs across unit and integration layers, all passing.
+- Full README with patterns & recipes: JWT expiry, opaque tokens, token refresh flow, API key scoping, Basic for admin-only routes, webhook signature verification.
+
+### v0.8 — Header and Accept-Header Versioning (planned)
+
+- `version "v1", using: :header` — reads version from a configurable request header (e.g. `X-API-Version`).
+- `version "v1", using: :accept` — reads version from `Accept` header media type parameter (e.g. `application/vnd.myapi.v1+json`).
+- Multiple versioning strategies composable in a single API.
+- OpenAPI spec updated to reflect version negotiation.
+
+### v0.9 — XML and MessagePack Formatters (planned)
+
+- Pluggable `Pika::Formatter` interface for content-type negotiation.
+- `format :xml` and `format :msgpack` at API or per-route level.
+- Content negotiation via `Accept` header.
+- Entity layer extended to emit XML and MessagePack alongside JSON.
+- OpenAPI spec updated to include alternative content types in response schemas.
+
+### v0.10 — Async/Streaming Responses (planned)
+
+- Chunked transfer encoding support for streaming large response bodies.
+- Server-sent events (SSE) helper for push-based APIs.
+- Handler blocks can yield to an IO stream for long-running or paginated responses.
+- Integration with Crystal's fiber scheduler — no blocking calls required.
+
+### v1.0 — Stabilize (planned)
+
 - API freeze, semver commitment.
-- Migration guide from Grape.
+- Docs site launch (Astro or mdBook).
 - Case studies, launch announcement.
 
 ### Post-v1 (deferred)
-- Header/Accept versioning.
-- XML/MessagePack formatters.
-- Auth strategy abstractions.
-- Async/streaming responses.
-- Hypermedia/HTMX support (formatter, template integration, response helpers) — revisit based on user demand.
+
+- Hypermedia/HTMX support — revisit based on user demand.
+- Jennifer, Granite, Crecto ORM bridges (community contributions welcome; same `pika-<orm>` pattern as pika-clear).
 
 ---
 
