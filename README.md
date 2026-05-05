@@ -295,6 +295,177 @@ end
 
 ---
 
+## OpenAPI 3.1
+
+Pika generates a full OpenAPI 3.1 document from the same DSL used to define routes — no separate annotation layer, no decorator soup. Everything in the spec is derived directly from what's already in your code.
+
+### What gets captured automatically
+
+| DSL construct | OpenAPI output |
+|---|---|
+| `version "v1"` + `namespace`/`resource` | Path strings under `paths` |
+| `route_param :id` | `{id}` path parameter with `in: path, required: true` |
+| `desc "..."` | `summary` field on the operation |
+| `requires name : String` | Required query parameter or request body field |
+| `optional score : Float64` | Optional query parameter or request body field |
+| `params` on `POST`/`PUT`/`PATCH` | `requestBody` with `application/json` schema |
+| `params` on `GET`/`DELETE` | `parameters` array with `in: query` |
+| `info title:, version:, description:` | `info` object in the document root |
+
+Path parameters use `:name` in the router and are converted to `{name}` in the OpenAPI output automatically.
+
+### Setting API metadata
+
+```crystal
+class MyAPI < Pika::API
+  info title:       "Users API",
+       version:     "1.0.0",
+       description: "Manages user accounts and authentication"
+end
+```
+
+If `info` is omitted, `title` defaults to the class name and `version` to `"1.0.0"`.
+
+### Accessing the spec
+
+```crystal
+# Full OpenAPI 3.1 JSON document
+MyAPI.openapi_doc   # => String (JSON)
+
+# Just the paths object (useful for merging into a manually-built spec)
+MyAPI.openapi       # => String (JSON)
+```
+
+### Serving the spec and Scalar UI
+
+`docs at:` mounts two routes directly on the API router:
+
+```crystal
+class MyAPI < Pika::API
+  docs at: "/docs"
+end
+```
+
+| Route | Response |
+|---|---|
+| `GET /docs` | Scalar interactive UI (HTML) |
+| `GET /docs/openapi.json` | OpenAPI 3.1 JSON spec |
+
+The Scalar UI loads the spec from `/docs/openapi.json` at runtime, so the displayed documentation always reflects the live server — no build step or static file generation required.
+
+### Route descriptions
+
+Use `desc` immediately before the HTTP verb to add a summary to an operation:
+
+```crystal
+resource :users do
+  desc "List all users"
+  get do ... end
+
+  desc "Create a user"
+  params do
+    requires name  : String
+    requires email : String
+  end
+  post do ... end
+
+  route_param :id do
+    desc "Get a user by ID"
+    get do ... end
+
+    desc "Delete a user"
+    delete do ... end
+  end
+end
+```
+
+A `desc` without a following verb is silently dropped — it never causes an error.
+
+### Example generated document
+
+For the route definition above, `MyAPI.openapi_doc` produces:
+
+```json
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Users API",
+    "version": "1.0.0",
+    "description": "Manages user accounts and authentication"
+  },
+  "paths": {
+    "/v1/users": {
+      "get": {
+        "summary": "List all users",
+        "operationId": "get_v1_users",
+        "responses": { "200": { "description": "OK" } }
+      },
+      "post": {
+        "summary": "Create a user",
+        "operationId": "post_v1_users",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "email"],
+                "properties": {
+                  "name":  { "type": "string" },
+                  "email": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/v1/users/{id}": {
+      "get": {
+        "summary": "Get a user by ID",
+        "operationId": "get_v1_users_id",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      },
+      "delete": {
+        "summary": "Delete a user",
+        "operationId": "delete_v1_users_id",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      }
+    }
+  }
+}
+```
+
+### Mounted sub-APIs
+
+When you `mount` a sub-API, its routes are merged into the parent's OpenAPI document automatically:
+
+```crystal
+class AdminAPI < Pika::API
+  resource :reports do
+    desc "List reports"
+    get do ... end
+  end
+end
+
+class MyAPI < Pika::API
+  version "v1"
+  info title: "Full API", version: "1.0.0"
+  docs at: "/docs"
+
+  mount AdminAPI   # /v1/reports appears in MyAPI.openapi_doc
+end
+```
+
+---
+
 ## Mounting sub-APIs
 
 ```crystal
