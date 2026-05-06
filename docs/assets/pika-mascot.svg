@@ -1,0 +1,101 @@
+<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bodyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#C9A57D"/>
+      <stop offset="100%" stop-color="#9B7A55"/>
+    </linearGradient>
+    <linearGradient id="bellyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#F5E6D0"/>
+      <stop offset="100%" stop-color="#E8D4B5"/>
+    </linearGradient>
+    <linearGradient id="crystalGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#A78BFA"/>
+      <stop offset="50%" stop-color="#8B5CF6"/>
+      <stop offset="100%" stop-color="#6D28D9"/>
+    </linearGradient>
+    <linearGradient id="crystalShine" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#DDD6FE" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#A78BFA" stop-opacity="0.3"/>
+    </linearGradient>
+    <radialGradient id="cheekBlush" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#F4A89C" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#F4A89C" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Ground shadow -->
+  <ellipse cx="200" cy="370" rx="100" ry="10" fill="#000000" opacity="0.15"/>
+
+  <!-- Body (round, pika-shaped) -->
+  <ellipse cx="200" cy="245" rx="115" ry="105" fill="url(#bodyGrad)"/>
+
+  <!-- Belly highlight -->
+  <ellipse cx="200" cy="270" rx="75" ry="65" fill="url(#bellyGrad)"/>
+
+  <!-- Left ear (small, rounded - pika-style, not bunny) -->
+  <ellipse cx="135" cy="155" rx="28" ry="32" fill="url(#bodyGrad)" transform="rotate(-15 135 155)"/>
+  <ellipse cx="135" cy="158" rx="16" ry="20" fill="#E8B5A0" transform="rotate(-15 135 158)"/>
+
+  <!-- Right ear -->
+  <ellipse cx="265" cy="155" rx="28" ry="32" fill="url(#bodyGrad)" transform="rotate(15 265 155)"/>
+  <ellipse cx="265" cy="158" rx="16" ry="20" fill="#E8B5A0" transform="rotate(15 265 158)"/>
+
+  <!-- Head -->
+  <ellipse cx="200" cy="180" rx="95" ry="85" fill="url(#bodyGrad)"/>
+
+  <!-- Face lighter patch -->
+  <ellipse cx="200" cy="195" rx="65" ry="55" fill="url(#bellyGrad)"/>
+
+  <!-- Cheeks -->
+  <ellipse cx="148" cy="205" rx="18" ry="12" fill="url(#cheekBlush)"/>
+  <ellipse cx="252" cy="205" rx="18" ry="12" fill="url(#cheekBlush)"/>
+
+  <!-- Eyes -->
+  <ellipse cx="170" cy="175" rx="11" ry="13" fill="#1F2937"/>
+  <ellipse cx="230" cy="175" rx="11" ry="13" fill="#1F2937"/>
+
+  <!-- Eye highlights -->
+  <circle cx="173" cy="170" r="3.5" fill="#FFFFFF"/>
+  <circle cx="233" cy="170" r="3.5" fill="#FFFFFF"/>
+  <circle cx="167" cy="178" r="1.5" fill="#FFFFFF" opacity="0.6"/>
+  <circle cx="227" cy="178" r="1.5" fill="#FFFFFF" opacity="0.6"/>
+
+  <!-- Nose -->
+  <path d="M 195 205 Q 200 200 205 205 Q 203 212 200 213 Q 197 212 195 205 Z" fill="#3F2418"/>
+
+  <!-- Mouth -->
+  <path d="M 200 215 Q 200 222 192 222" stroke="#3F2418" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <path d="M 200 215 Q 200 222 208 222" stroke="#3F2418" stroke-width="2" fill="none" stroke-linecap="round"/>
+
+  <!-- Whiskers -->
+  <line x1="135" y1="210" x2="105" y2="205" stroke="#6B5640" stroke-width="1" stroke-linecap="round" opacity="0.5"/>
+  <line x1="135" y1="215" x2="105" y2="218" stroke="#6B5640" stroke-width="1" stroke-linecap="round" opacity="0.5"/>
+  <line x1="265" y1="210" x2="295" y2="205" stroke="#6B5640" stroke-width="1" stroke-linecap="round" opacity="0.5"/>
+  <line x1="265" y1="215" x2="295" y2="218" stroke="#6B5640" stroke-width="1" stroke-linecap="round" opacity="0.5"/>
+
+  <!-- Arms holding crystal -->
+  <ellipse cx="155" cy="280" rx="22" ry="35" fill="url(#bodyGrad)" transform="rotate(20 155 280)"/>
+  <ellipse cx="245" cy="280" rx="22" ry="35" fill="url(#bodyGrad)" transform="rotate(-20 245 280)"/>
+
+  <!-- Crystal shard -->
+  <g transform="translate(200 290)">
+    <path d="M -25 -40 L 25 -40 L 35 -10 L 25 35 L -25 35 L -35 -10 Z" fill="url(#crystalGrad)" stroke="#5B21B6" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M -25 -40 L 0 -25 L 25 -40 Z" fill="url(#crystalShine)" opacity="0.7"/>
+    <path d="M -35 -10 L -10 -5 L -25 35 Z" fill="#DDD6FE" opacity="0.3"/>
+    <path d="M 35 -10 L 10 -5 L 25 35 Z" fill="#5B21B6" opacity="0.3"/>
+    <path d="M 0 -25 L 0 -50" stroke="#DDD6FE" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+    <path d="M -8 -42 L 8 -42" stroke="#DDD6FE" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+    <path d="M -5 -47 L 5 -47" stroke="#DDD6FE" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+  </g>
+
+  <!-- Feet -->
+  <ellipse cx="170" cy="345" rx="22" ry="10" fill="#9B7A55"/>
+  <ellipse cx="230" cy="345" rx="22" ry="10" fill="#9B7A55"/>
+
+  <!-- Sparkles -->
+  <g fill="#A78BFA" opacity="0.7">
+    <path d="M 95 130 L 98 137 L 105 140 L 98 143 L 95 150 L 92 143 L 85 140 L 92 137 Z"/>
+    <path d="M 320 180 L 322 185 L 327 187 L 322 189 L 320 194 L 318 189 L 313 187 L 318 185 Z"/>
+    <path d="M 80 280 L 82 284 L 86 286 L 82 288 L 80 292 L 78 288 L 74 286 L 78 284 Z"/>
+  </g>
+</svg>

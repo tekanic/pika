@@ -1,0 +1,41 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="markBody" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#C9A57D"/>
+      <stop offset="100%" stop-color="#9B7A55"/>
+    </linearGradient>
+    <linearGradient id="markCrystal" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#A78BFA"/>
+      <stop offset="100%" stop-color="#6D28D9"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded square background (favicon-friendly) -->
+  <rect x="0" y="0" width="100" height="100" rx="20" ry="20" fill="#FAF7F2"/>
+
+  <!-- Pika silhouette: simplified to body + ears + face mark -->
+  <!-- Ears -->
+  <ellipse cx="35" cy="32" rx="9" ry="11" fill="url(#markBody)" transform="rotate(-15 35 32)"/>
+  <ellipse cx="65" cy="32" rx="9" ry="11" fill="url(#markBody)" transform="rotate(15 65 32)"/>
+
+  <!-- Body (round) -->
+  <circle cx="50" cy="58" r="32" fill="url(#markBody)"/>
+
+  <!-- Face lighter patch -->
+  <ellipse cx="50" cy="60" rx="22" ry="20" fill="#F5E6D0"/>
+
+  <!-- Eyes -->
+  <circle cx="40" cy="52" r="3.5" fill="#1F2937"/>
+  <circle cx="60" cy="52" r="3.5" fill="#1F2937"/>
+  <circle cx="41" cy="51" r="1.2" fill="#FFFFFF"/>
+  <circle cx="61" cy="51" r="1.2" fill="#FFFFFF"/>
+
+  <!-- Nose -->
+  <ellipse cx="50" cy="62" rx="2" ry="1.5" fill="#3F2418"/>
+
+  <!-- Tiny crystal accent (subtle, lower right of body) -->
+  <g transform="translate(70 70)">
+    <path d="M -5 -7 L 5 -7 L 7 -2 L 5 7 L -5 7 L -7 -2 Z" fill="url(#markCrystal)" stroke="#5B21B6" stroke-width="1" stroke-linejoin="round"/>
+    <path d="M -5 -7 L 0 -4 L 5 -7 Z" fill="#DDD6FE" opacity="0.7"/>
+  </g>
+</svg>
