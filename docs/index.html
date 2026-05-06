@@ -286,31 +286,108 @@
       border-top: 1px solid var(--border);
       border-bottom: 1px solid var(--border);
     }
-    .perf-grid {
+    .perf-hero {
       display: grid; grid-template-columns: repeat(3, 1fr);
-      gap: 20px; margin-bottom: 28px;
+      gap: 20px; margin-bottom: 40px;
     }
     .perf-card {
       background: var(--bg); border: 1px solid var(--border-2);
-      border-radius: var(--r); padding: 36px 28px; text-align: center;
+      border-radius: var(--r); padding: 32px 24px; text-align: center;
       position: relative; overflow: hidden;
     }
+    .perf-card.winner { border-color: var(--accent-2); }
     .perf-card::before {
       content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+      background: var(--border-2);
+    }
+    .perf-card.winner::before {
       background: linear-gradient(90deg, var(--accent-2), var(--accent-3));
     }
+    .perf-badge {
+      display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--accent-bright);
+      background: rgba(139,92,246,0.15); border: 1px solid rgba(139,92,246,0.3);
+      border-radius: 4px; padding: 2px 8px; margin-bottom: 12px;
+    }
     .perf-num {
-      font-size: clamp(36px, 4vw, 48px); font-weight: 700;
+      font-size: clamp(32px, 3.5vw, 44px); font-weight: 700;
       letter-spacing: -0.03em; line-height: 1;
       background: linear-gradient(135deg, var(--accent-bright), var(--accent-3));
       -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-      background-clip: text; margin-bottom: 10px;
+      background-clip: text; margin-bottom: 8px;
     }
-    .perf-label { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
-    .perf-sublabel { font-size: 12px; color: var(--text-2); }
+    .perf-card:not(.winner) .perf-num {
+      background: none; -webkit-text-fill-color: var(--text);
+    }
+    .perf-unit { font-size: 13px; font-weight: 600; color: var(--text-2); margin-bottom: 4px; }
+    .perf-sublabel { font-size: 12px; color: var(--text-3); }
+    /* Comparison table */
+    .bench-table-wrap { overflow-x: auto; margin-bottom: 12px; }
+    .bench-table {
+      width: 100%; border-collapse: collapse; font-size: 14px;
+    }
+    .bench-table th, .bench-table td {
+      padding: 12px 16px; text-align: right; border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .bench-table th { font-size: 12px; font-weight: 600; color: var(--text-3);
+      text-transform: uppercase; letter-spacing: 0.06em; }
+    .bench-table td:first-child, .bench-table th:first-child {
+      text-align: left; color: var(--text-2);
+    }
+    .bench-table .col-pika { color: var(--accent-bright); font-weight: 700; }
+    .bench-table .col-go   { color: var(--text); }
+    .bench-table .col-ruby { color: var(--text-3); }
+    .bench-table .col-head-pika { color: var(--accent-bright); }
+    .bench-table .col-head-go   { color: var(--text-2); }
+    .bench-table .col-head-ruby { color: var(--text-3); }
+    .bench-table tr:last-child td { border-bottom: none; }
+    .bench-table .mult {
+      font-size: 11px; color: var(--text-3); margin-left: 4px;
+    }
+    .bench-config {
+      font-size: 12px; color: var(--text-3); margin-bottom: 6px;
+    }
     .perf-note { text-align: center; font-size: 13px; color: var(--text-3); }
     .perf-note a { color: var(--text-2); }
     .perf-note a:hover { color: var(--accent); }
+
+    /* ─── TYPE SAFETY ─── */
+    .safety-section { background: var(--bg); }
+    .safety-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
+      margin-top: 8px;
+    }
+    .safety-panel {
+      border-radius: var(--r); overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    .safety-bad  { border-color: rgba(239,68,68,0.3); }
+    .safety-good { border-color: rgba(34,197,94,0.3); }
+    .safety-label {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 12px; font-weight: 600; letter-spacing: 0.04em;
+      padding: 10px 16px;
+    }
+    .safety-label-bad  { background: rgba(239,68,68,0.08);  color: #f87171; }
+    .safety-label-good { background: rgba(34,197,94,0.08);  color: #4ade80; }
+    .safety-code {
+      margin: 0; padding: 20px 20px; background: var(--surface);
+      font-family: 'JetBrains Mono', monospace; font-size: 13px;
+      line-height: 1.7; overflow-x: auto; color: var(--text-2);
+    }
+    .safety-code .sc-comment { color: var(--text-3); }
+    .safety-code .sc-str     { color: #a5f3fc; }
+    .safety-code .sc-err     { color: #f87171; }
+    .safety-code .sc-err-inline {
+      color: #f87171;
+      text-decoration: underline wavy #f87171;
+      text-underline-offset: 3px;
+    }
+    .safety-code .sc-ok      { color: #4ade80; }
+    @media (max-width: 880px) {
+      .safety-grid { grid-template-columns: 1fr; }
+    }
 
     /* ─── ECOSYSTEM ─── */
     .eco-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; }
@@ -406,7 +483,8 @@
       .hero-mascot { display: none; }
       .features-grid { grid-template-columns: repeat(2, 1fr); }
       .showcase-grid { grid-template-columns: 1fr; gap: 40px; }
-      .perf-grid { grid-template-columns: 1fr; gap: 16px; }
+      .perf-hero { grid-template-columns: 1fr; gap: 16px; }
+      .bench-table th, .bench-table td { padding: 10px 12px; font-size: 13px; }
     }
     @media (max-width: 600px) {
       .features-grid { grid-template-columns: 1fr; }
@@ -452,7 +530,7 @@
         <h1>Grape-inspired REST APIs<br>for Crystal</h1>
         <p class="hero-sub">
           Declarative DSL. Compile-time param validation.<br>
-          OpenAPI 3.1. Zero external dependencies.
+          OpenAPI 3.1. 50% faster than Go single-threaded.
         </p>
 
         <div class="install-wrap">
@@ -501,7 +579,7 @@
       <div class="feat">
         <div class="feat-icon">🔒</div>
         <h3>Compile-time params</h3>
-        <p>Param blocks generate typed structs. Access <code>declared_params.name</code> as a <code>String</code>. Typos are compile errors, not runtime <code>KeyError</code>s.</p>
+        <p>Param blocks generate typed structs — <code>declared_params.name</code> is a <code>String</code>, guaranteed. Misspell a field or pass the wrong type and the compiler tells you before your tests run, not after a 3am page.</p>
       </div>
       <div class="feat">
         <div class="feat-icon">📄</div>
@@ -520,12 +598,55 @@
       </div>
       <div class="feat">
         <div class="feat-icon">🚀</div>
-        <h3>Zero dependencies</h3>
-        <p>Pika owns its router on Crystal's stdlib <code>HTTP::Server</code>. No Kemal, no HTTP framework. 155k+ req/s single-threaded.</p>
+        <h3>Go-beating throughput</h3>
+        <p>144k req/s single-threaded — 50% faster than Go's chi router (matched GOMAXPROCS=1), 12× faster than Grape. Pika owns its router on Crystal's stdlib <code>HTTP::Server</code> with no external HTTP dependency.</p>
       </div>
     </div>
   </div>
 </section>
+
+<!-- ── TYPE SAFETY CALLOUT ── -->
+<section class="safety-section">
+  <div class="container">
+    <p class="section-eyebrow">Type Safety</p>
+    <h2 class="section-title">Catch bugs before they ship</h2>
+    <p class="section-sub">Crystal's compiler is your first line of defence. Every param access is checked at compile time — typos, wrong types, missing fields never make it to production.</p>
+    <div class="safety-grid">
+      <div class="safety-panel safety-bad">
+        <div class="safety-label safety-label-bad">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          Ruby · Grape — fails at runtime
+        </div>
+        <pre class="safety-code"><code><span class="sc-comment"># A typo in params hash access</span>
+get <span class="sc-str">:users</span> do
+  page = params[<span class="sc-str">:pge</span>]   <span class="sc-comment"># typo — returns nil</span>
+  limit = params[<span class="sc-str">:limt</span>]  <span class="sc-comment"># typo — returns nil</span>
+  User.page(page).per(limit)
+end
+
+<span class="sc-err">⚠  NoMethodError: undefined method `page'</span>
+<span class="sc-err">   for nil:NilClass  ← discovered in production</span></code></pre>
+      </div>
+      <div class="safety-panel safety-good">
+        <div class="safety-label safety-label-good">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+          Crystal · Pika — caught at compile time
+        </div>
+        <pre class="safety-code"><code><span class="sc-comment"># The same typo in Pika</span>
+get <span class="sc-str">:users</span> do
+  page  = declared_params.<span class="sc-err-inline">pge</span>   <span class="sc-comment"># typo</span>
+  limit = declared_params.<span class="sc-err-inline">limt</span>  <span class="sc-comment"># typo</span>
+  User.page(page).per(limit)
+end
+
+<span class="sc-ok">✓  Error: undefined method 'pge'</span>
+<span class="sc-ok">   for Params ← caught before binary compiles</span></code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
 
 <!-- ── CODE SHOWCASE ── -->
 <section>
@@ -665,29 +786,96 @@ MyAPI.run  # → 0.0.0.0:3000</code></pre>
 <section class="perf-section">
   <div class="container">
     <p class="section-eyebrow">Performance</p>
-    <h2 class="section-title">Go-class throughput, Crystal simplicity</h2>
-    <p class="section-sub">Measured with <code>bombardier -c 128 -d 15s</code> on Apple M-series. Hand-rolled router on Crystal's stdlib — no external HTTP dependency, no framework overhead.</p>
+    <h2 class="section-title">50% faster than Go. 12× faster than Grape.</h2>
+    <p class="section-sub">Matched pairs: Pika 1 thread vs Go <code>GOMAXPROCS=1</code>; Pika 4 threads (<code>preview_mt</code>) vs Go <code>GOMAXPROCS=4</code>. Same machine (<code>bombardier -c 128 -d 15s</code>, Apple M-series), zero non-2xx responses.</p>
 
-    <div class="perf-grid">
-      <div class="perf-card">
-        <div class="perf-num">155k+</div>
-        <div class="perf-label">req / sec</div>
-        <div class="perf-sublabel">Single-threaded &nbsp;·&nbsp; static route</div>
+    <div class="perf-hero">
+      <div class="perf-card winner">
+        <div class="perf-badge">Pika · Crystal · 1 thread</div>
+        <div class="perf-num">144k</div>
+        <div class="perf-unit">req / sec</div>
+        <div class="perf-sublabel">Static route</div>
       </div>
       <div class="perf-card">
-        <div class="perf-num">190k+</div>
-        <div class="perf-label">req / sec</div>
-        <div class="perf-sublabel">4 threads (<code>preview_mt</code>) &nbsp;·&nbsp; static route</div>
+        <div class="perf-badge" style="color:var(--text-3);background:rgba(255,255,255,0.04);border-color:var(--border)">Go · chi · GOMAXPROCS=1</div>
+        <div class="perf-num">96k</div>
+        <div class="perf-unit">req / sec</div>
+        <div class="perf-sublabel">Static route</div>
       </div>
       <div class="perf-card">
-        <div class="perf-num">123k+</div>
-        <div class="perf-label">req / sec</div>
-        <div class="perf-sublabel">Full param validation &nbsp;·&nbsp; JSON body</div>
+        <div class="perf-badge" style="color:var(--text-3);background:rgba(255,255,255,0.04);border-color:var(--border)">Ruby · Grape 3.2 · 1 thread</div>
+        <div class="perf-num">12k</div>
+        <div class="perf-unit">req / sec</div>
+        <div class="perf-sublabel">Static route</div>
       </div>
     </div>
+
+    <div class="bench-table-wrap">
+      <table class="bench-table">
+        <thead>
+          <tr>
+            <th>Endpoint</th>
+            <th class="col-head-pika">Pika (Crystal)</th>
+            <th class="col-head-go">Go (chi)</th>
+            <th class="col-head-ruby">Ruby (Grape)</th>
+            <th class="col-head-pika" style="text-align:left;padding-left:20px">vs Grape</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="color:var(--text-3);font-size:11px;padding-bottom:4px" colspan="5">1 thread · GOMAXPROCS=1</td>
+          </tr>
+          <tr>
+            <td>Static text</td>
+            <td class="col-pika">144,712</td>
+            <td class="col-go">96,350</td>
+            <td class="col-ruby">12,082</td>
+            <td class="col-pika" style="text-align:left;padding-left:20px;font-weight:700">12× faster</td>
+          </tr>
+          <tr>
+            <td>JSON response</td>
+            <td class="col-pika">129,701</td>
+            <td class="col-go">83,131</td>
+            <td class="col-ruby">11,701</td>
+            <td class="col-pika" style="text-align:left;padding-left:20px;font-weight:700">11× faster</td>
+          </tr>
+          <tr>
+            <td>POST + param validation</td>
+            <td class="col-pika">125,210</td>
+            <td class="col-go">71,998</td>
+            <td class="col-ruby">8,487</td>
+            <td class="col-pika" style="text-align:left;padding-left:20px;font-weight:700">15× faster</td>
+          </tr>
+          <tr>
+            <td style="color:var(--text-3);font-size:11px;padding-bottom:4px;padding-top:16px" colspan="5">4 threads · GOMAXPROCS=4 &nbsp;·&nbsp; <em style="font-style:normal;color:var(--text-3)">Crystal preview_mt is experimental</em></td>
+          </tr>
+          <tr>
+            <td>Static text</td>
+            <td class="col-pika">124,812</td>
+            <td class="col-go">110,868</td>
+            <td class="col-ruby">—</td>
+            <td class="col-pika" style="text-align:left;padding-left:20px;font-weight:700">—</td>
+          </tr>
+          <tr>
+            <td>JSON response</td>
+            <td class="col-pika">77,749</td>
+            <td class="col-go">102,863</td>
+            <td class="col-ruby">—</td>
+            <td style="text-align:left;padding-left:20px;color:var(--text-3)">Go leads</td>
+          </tr>
+          <tr>
+            <td>POST + param validation</td>
+            <td class="col-pika">73,131</td>
+            <td class="col-go">88,115</td>
+            <td class="col-ruby">—</td>
+            <td style="text-align:left;padding-left:20px;color:var(--text-3)">Go leads</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="bench-config">req/sec · <code>bombardier -c 128 -d 15s</code> · Apple M-series · Ruby: Grape 3.2.1 + Puma, Ruby 3.3.5 (MRI arm64-darwin)</p>
     <p class="perf-note">
-      Zero non-2xx responses across 1.8–2.9M requests per run. &nbsp;
-      <a href="https://github.com/tekanic/pika/blob/main/bench/results.md">Full benchmark results →</a>
+      <a href="https://github.com/tekanic/pika/blob/main/bench/results.md">Full benchmark methodology and results →</a>
     </p>
   </div>
 </section>
