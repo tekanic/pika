@@ -62,6 +62,31 @@ MyAPI.run  # 0.0.0.0:3000
 
 ---
 
+## Prerequisites
+
+| Requirement | Version | Notes |
+|---|---|---|
+| [Crystal](https://crystal-lang.org/install/) | `>= 1.0.0` | Latest stable recommended |
+| [Shards](https://github.com/crystal-lang/shards) | bundled with Crystal | Dependency manager |
+| **For `pika-clear` only** | | |
+| [PostgreSQL](https://www.postgresql.org/download/) | `>= 14` | Required by Clear ORM |
+| **For running benchmarks only** | | |
+| [bombardier](https://github.com/codesenberg/bombardier) | any | HTTP benchmarking tool |
+
+Install Crystal via the official installer or your package manager:
+
+```sh
+# macOS
+brew install crystal
+
+# Ubuntu/Debian
+curl -fsSL https://packagecloud.io/AtomEditor/crystal/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/crystal.gpg
+```
+
+Full platform-specific instructions at [crystal-lang.org/install](https://crystal-lang.org/install/).
+
+---
+
 ## Installation
 
 Add to your `shard.yml`:
