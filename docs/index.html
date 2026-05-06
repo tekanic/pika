@@ -605,72 +605,55 @@ MyAPI.run  # → 0.0.0.0:3000</code></pre>
 <section style="background:var(--surface);border-top:1px solid var(--border);border-bottom:1px solid var(--border);">
   <div class="container">
     <p class="section-eyebrow">OpenAPI 3.1</p>
-    <h2 class="section-title">The spec writes itself</h2>
-    <p class="section-sub">Call <code>MyAPI.openapi_doc</code> and get a complete, valid OpenAPI 3.1 document — derived entirely from the DSL above. No annotations, no separate spec file to maintain.</p>
+    <h2 class="section-title">Interactive docs, out of the box</h2>
+    <p class="section-sub">Add <code>docs at: "/docs"</code> and Pika mounts a live <a href="https://scalar.com" style="color:var(--text-2)">Scalar</a> explorer alongside your API — no build step, no separate config. The spec is generated entirely from your DSL.</p>
 
-    <div class="code-window">
-      <div class="code-titlebar">
-        <div class="dot dot-r"></div>
-        <div class="dot dot-y"></div>
-        <div class="dot dot-g"></div>
-        <span class="filename">MyAPI.openapi_doc → JSON</span>
+    <!-- Browser mockup -->
+    <div style="
+      border-radius: var(--r);
+      overflow: hidden;
+      border: 1px solid var(--border-2);
+      box-shadow: 0 32px 80px rgba(0,0,0,0.55), 0 0 0 1px var(--border);
+    ">
+      <!-- Toolbar -->
+      <div style="
+        background: var(--surface-2);
+        border-bottom: 1px solid var(--border);
+        padding: 10px 16px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      ">
+        <div style="display:flex;gap:6px;">
+          <div class="dot dot-r"></div>
+          <div class="dot dot-y"></div>
+          <div class="dot dot-g"></div>
+        </div>
+        <div style="
+          flex:1; text-align:center;
+          background: var(--bg);
+          border: 1px solid var(--border);
+          border-radius: 6px;
+          padding: 4px 16px;
+          font-size: 12px;
+          font-family: 'JetBrains Mono', monospace;
+          color: var(--text-2);
+          max-width: 300px;
+          margin: 0 auto;
+        ">localhost:3000/docs</div>
+        <div style="width:52px;"></div>
       </div>
-      <pre><code class="language-json">{
-  "openapi": "3.1.0",
-  "info": {
-    "title": "My API",
-    "version": "1.0.0"
-  },
-  "paths": {
-    "/v1/users": {
-      "get": {
-        "summary": "List all users",
-        "operationId": "get_v1_users",
-        "parameters": [
-          { "name": "page",     "in": "query", "required": false, "schema": { "type": "integer", "default": 1  } },
-          { "name": "per_page", "in": "query", "required": false, "schema": { "type": "integer", "default": 25 } }
-        ],
-        "responses": { "200": { "description": "OK" } }
-      },
-      "post": {
-        "summary": "Create a user",
-        "operationId": "post_v1_users",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "required": ["name", "email"],
-                "properties": {
-                  "name":  { "type": "string" },
-                  "email": { "type": "string" },
-                  "role":  { "type": "string", "default": "member",
-                             "enum": ["member", "admin"] }
-                }
-              }
-            }
-          }
-        },
-        "responses": { "200": { "description": "OK" } }
-      }
-    },
-    "/v1/users/{id}": {
-      "get": {
-        "summary": "Get a user",
-        "operationId": "get_v1_users_id",
-        "parameters": [
-          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
-        ],
-        "responses": { "200": { "description": "OK" } }
-      }
-    }
-  }
-}</code></pre>
+      <!-- Iframe -->
+      <iframe
+        src="scalar-preview.html"
+        style="display:block;width:100%;height:620px;border:none;"
+        title="Pika API Reference — Scalar UI preview"
+        loading="lazy"
+      ></iframe>
     </div>
 
-    <p style="margin-top:20px;font-size:13px;color:var(--text-3);text-align:center;">
-      Mount <code>docs at: "/docs"</code> to serve this spec live alongside an interactive Scalar UI explorer. &nbsp;
+    <p style="margin-top:16px;font-size:13px;color:var(--text-3);text-align:center;">
+      This is the real Scalar UI — click any endpoint to expand it. &nbsp;
       <a href="https://github.com/tekanic/pika/blob/main/README.md#openapi-31" style="color:var(--text-2);">Full OpenAPI docs →</a>
     </p>
   </div>

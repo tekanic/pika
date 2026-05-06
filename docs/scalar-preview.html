@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pika — API Reference</title>
+  <style>
+    body { margin: 0; }
+  </style>
+</head>
+<body>
+  <script id="api-reference" type="application/json">
+  {
+    "openapi": "3.1.0",
+    "info": {
+      "title": "My API",
+      "version": "1.0.0",
+      "description": "Example API built with [Pika](https://tekanic.github.io/pika/) — a Grape-inspired REST framework for Crystal."
+    },
+    "tags": [
+      { "name": "Users", "description": "User management endpoints" },
+      { "name": "Health", "description": "Service health" }
+    ],
+    "paths": {
+      "/v1/users": {
+        "get": {
+          "tags": ["Users"],
+          "summary": "List all users",
+          "operationId": "get_v1_users",
+          "parameters": [
+            {
+              "name": "page",
+              "in": "query",
+              "required": false,
+              "schema": { "type": "integer", "default": 1, "minimum": 1 }
+            },
+            {
+              "name": "per_page",
+              "in": "query",
+              "required": false,
+              "schema": { "type": "integer", "default": 25, "minimum": 1, "maximum": 100 }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "A list of users",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "users": {
+                        "type": "array",
+                        "items": { "$ref": "#/components/schemas/User" }
+                      },
+                      "page": { "type": "integer" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "post": {
+          "tags": ["Users"],
+          "summary": "Create a user",
+          "operationId": "post_v1_users",
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["name", "email"],
+                  "properties": {
+                    "name":  { "type": "string", "pattern": "^\\w+$", "example": "alice" },
+                    "email": { "type": "string", "format": "email", "example": "alice@example.com" },
+                    "role":  { "type": "string", "default": "member", "enum": ["member", "admin"] }
+                  }
+                }
+              }
+            }
+          },
+          "responses": {
+            "200": {
+              "description": "User created",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "created": { "type": "boolean", "example": true },
+                      "name":    { "type": "string",  "example": "alice" }
+                    }
+                  }
+                }
+              }
+            },
+            "422": {
+              "description": "Validation failed",
+              "content": {
+                "application/problem+json": {
+                  "schema": { "$ref": "#/components/schemas/ValidationError" }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/v1/users/{id}": {
+        "get": {
+          "tags": ["Users"],
+          "summary": "Get a user",
+          "operationId": "get_v1_users_id",
+          "parameters": [
+            { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+          ],
+          "responses": {
+            "200": {
+              "description": "The user",
+              "content": {
+                "application/json": {
+                  "schema": { "$ref": "#/components/schemas/User" }
+                }
+              }
+            },
+            "404": {
+              "description": "Not found",
+              "content": {
+                "application/problem+json": {
+                  "schema": { "$ref": "#/components/schemas/ProblemDetail" }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/v1/health": {
+        "get": {
+          "tags": ["Health"],
+          "summary": "Health check",
+          "operationId": "get_v1_health",
+          "responses": {
+            "200": {
+              "description": "Service is healthy",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "object",
+                    "properties": {
+                      "status": { "type": "string", "example": "ok" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "components": {
+      "schemas": {
+        "User": {
+          "type": "object",
+          "properties": {
+            "id":    { "type": "string",  "example": "usr_1a2b3c" },
+            "name":  { "type": "string",  "example": "alice" },
+            "email": { "type": "string",  "example": "alice@example.com" },
+            "role":  { "type": "string",  "example": "member" }
+          }
+        },
+        "ProblemDetail": {
+          "type": "object",
+          "properties": {
+            "type":   { "type": "string" },
+            "title":  { "type": "string" },
+            "status": { "type": "integer" },
+            "detail": { "type": "string" }
+          }
+        },
+        "ValidationError": {
+          "allOf": [
+            { "$ref": "#/components/schemas/ProblemDetail" },
+            {
+              "type": "object",
+              "properties": {
+                "errors": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "field":   { "type": "string" },
+                      "code":    { "type": "string" },
+                      "message": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "securitySchemes": {
+        "BearerAuth": {
+          "type": "http",
+          "scheme": "bearer"
+        }
+      }
+    },
+    "security": [{ "BearerAuth": [] }]
+  }
+  </script>
+
+  <script>
+    var configuration = {
+      theme: 'moon',
+      layout: 'classic',
+      hideModels: false,
+      darkMode: true,
+      hiddenClients: [],
+      defaultHttpClient: { targetKey: 'shell', clientKey: 'curl' }
+    };
+    document.getElementById('api-reference').dataset.configuration = JSON.stringify(configuration);
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+</body>
+</html>
