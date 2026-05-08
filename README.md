@@ -559,6 +559,89 @@ end
 
 ---
 
+## Versioning
+
+Pika supports three strategies for communicating the API version.
+
+### Path versioning (default)
+
+The version becomes a URL prefix — the classic REST style.
+
+```crystal
+class MyAPI < Pika::API
+  version "v1"          # equivalent to: version "v1", using: :path
+  # → GET /v1/users
+end
+```
+
+### Header versioning
+
+Routes are registered at their bare path. The client sends `X-Api-Version`.
+
+```crystal
+class V1API < Pika::API
+  version "v1", using: :header
+
+  resource :users do
+    get { "v1 users" }
+  end
+end
+
+class V2API < Pika::API
+  version "v2", using: :header
+
+  resource :users do
+    get { "v2 users" }
+  end
+end
+
+class MyAPI < Pika::API
+  mount V1API
+  mount V2API
+end
+```
+
+```
+GET /users
+X-Api-Version: v1
+```
+
+### Accept-header versioning
+
+The version is encoded in the `Accept` media type using the vendor string.
+
+```crystal
+class V1API < Pika::API
+  version "v1", using: :accept, vendor: "myapp"
+
+  resource :users do
+    get { "v1 users" }
+  end
+end
+```
+
+```
+GET /users
+Accept: application/vnd.myapp.v1+json
+```
+
+Both dot and hyphen separators are accepted (`vnd.myapp.v1+json` and `vnd.myapp-v1+json`).
+
+### Multi-version apps
+
+Mount versioned sub-APIs into a root app. Each sub-API declares its own version strategy independently.
+
+```crystal
+class MyAPI < Pika::API
+  mount V1API
+  mount V2API
+end
+```
+
+Unversioned routes (no `version` call) always match regardless of any version header.
+
+---
+
 ## Mounting sub-APIs
 
 ```crystal
@@ -938,12 +1021,13 @@ mount V2::UsersAPI
 | `route_param :id` | `route_param :id do` | Same concept |
 | `namespace :v1` | `namespace :v1` | Identical |
 | `resource :users` | `resource :users` | Identical |
-| `version "v1", using: :path` | `version "v1"` | Path is the only mode in v1 |
+| `version "v1", using: :path` | `version "v1"` | Default strategy |
+| `version "v1", using: :header` | `version "v1", using: :header` | `X-Api-Version` header |
+| `version "v1", using: :accept_version_header` | `version "v1", using: :accept, vendor: "app"` | Vendor media type |
 
 ### What Pika does not have (yet)
 
-- **Header/Accept-header versioning** — path versioning only in v1; planned for v0.8.
-- **XML/MessagePack formatters** — JSON only in v1; planned for v0.9.
+- **XML/MessagePack formatters** — JSON only; planned for v0.9.
 - **`use` middleware** — compose at the `HTTP::Server` level instead; Pika exposes a standard `HTTP::Handler`.
 - **Built-in ORM integration** — use `pika-clear` for Clear, or write a before hook for any other ORM.
 
@@ -961,7 +1045,7 @@ mount V2::UsersAPI
 | v0.5 — Clear ORM integration (`pika-clear` shard) | ✅ complete |
 | v0.6 — benchmarks, `reuse_port`, `params_from` | ✅ complete |
 | v0.7 — authentication strategies (`pika-auth` shard) | ✅ complete |
-| v0.8 — header and Accept-header versioning | planned |
+| v0.8 — header and Accept-header versioning | ✅ complete |
 | v0.9 — XML and MessagePack response formatters | planned |
 | v0.10 — async/streaming responses | planned |
 | v1.0 — API freeze, docs site, launch | planned |

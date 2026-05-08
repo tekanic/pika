@@ -1,6 +1,7 @@
 require "http/server"
 require "json"
 require "./version"
+require "./versioning"
 require "./error"
 require "./router"
 require "./params"
@@ -14,10 +15,12 @@ module Pika
     # Class-level state
     # ---------------------------------------------------------------------------
 
-    @@router           = Pika::Router.new
-    @@openapi_routes   = [] of Pika::OpenAPI::RouteSpec
-    @@_pika_version    = ""
-    @@_pika_path_stack = [] of String
+    @@router                  = Pika::Router.new
+    @@openapi_routes          = [] of Pika::OpenAPI::RouteSpec
+    @@_pika_version           = ""
+    @@_pika_version_strategy  = Pika::VersionStrategy::Path
+    @@_pika_version_vendor    = ""
+    @@_pika_path_stack        = [] of String
     @@_pika_info_title       = ""
     @@_pika_info_version     = "1.0.0"
     @@_pika_info_description = ""
@@ -54,12 +57,26 @@ module Pika
     end
 
     # ---------------------------------------------------------------------------
-    # version — sets a path prefix for the entire API
+    # version — declare the API version and how clients communicate it.
     #
-    #   version "v1", using: :path
+    #   version "v1"                                  # path prefix (default)
+    #   version "v1", using: :path                    # /v1/resource
+    #   version "v1", using: :header                  # X-Api-Version: v1
+    #   version "v1", using: :accept, vendor: "myapi" # Accept: application/vnd.myapi.v1+json
     # ---------------------------------------------------------------------------
     macro version(v, **options)
       @@_pika_version = {{ v }}
+      {% using_val = options[:using] ? options[:using].id.stringify : "path" %}
+      {% if using_val == "header" %}
+        @@_pika_version_strategy = Pika::VersionStrategy::Header
+      {% elsif using_val == "accept" %}
+        @@_pika_version_strategy = Pika::VersionStrategy::Accept
+      {% else %}
+        @@_pika_version_strategy = Pika::VersionStrategy::Path
+      {% end %}
+      {% if options[:vendor] %}
+        @@_pika_version_vendor = {{ options[:vendor] }}
+      {% end %}
     end
 
     # ---------------------------------------------------------------------------
@@ -178,10 +195,12 @@ module Pika
     # The current version + namespace prefix is applied to all mounted paths.
     # ---------------------------------------------------------------------------
     macro mount(api_class)
-      _pika_mount_prefix = (@@_pika_version.empty? ? "" : "/#{@@_pika_version}") +
-                           (@@_pika_path_stack.empty? ? "" : "/" + @@_pika_path_stack.join("/"))
-      {{ api_class }}.router.each_route do |_m_method, _m_path, _m_handler|
-        @@router.add(_m_method, _pika_mount_prefix + _m_path, &_m_handler)
+      _pika_mount_prefix = (
+        @@_pika_version_strategy == Pika::VersionStrategy::Path ?
+          (@@_pika_version.empty? ? "" : "/#{@@_pika_version}") : ""
+      ) + (@@_pika_path_stack.empty? ? "" : "/" + @@_pika_path_stack.join("/"))
+      {{ api_class }}.router.each_route do |_m_method, _m_path, _m_ver, _m_strat, _m_vendor, _m_handler|
+        @@router.add(_m_method, _pika_mount_prefix + _m_path, _m_ver, _m_strat, _m_vendor, &_m_handler)
       end
       @@openapi_routes.concat({{ api_class }}.openapi_routes)
     end
@@ -533,10 +552,15 @@ module Pika
         # --- Route & OpenAPI registration -----------------------------------
         # Path is computed at class-init time so namespace / version stack values
         # are already correct when this code runs.
-        _pika_prefix = (@@_pika_version.empty? ? "" : "/#{@@_pika_version}") + (@@_pika_path_stack.empty? ? "" : "/" + @@_pika_path_stack.join("/"))
+        # For non-path strategies the version is communicated via a header, so
+        # no URL prefix is added — the version info travels with the route entry.
+        _pika_ver_prefix = @@_pika_version_strategy == Pika::VersionStrategy::Path ?
+          (@@_pika_version.empty? ? "" : "/#{@@_pika_version}") : ""
+        _pika_prefix = _pika_ver_prefix + (@@_pika_path_stack.empty? ? "" : "/" + @@_pika_path_stack.join("/"))
         _pika_path   = _pika_prefix + "/#{{{ resource_name }}}" + {{ r[:path_suffix].empty? ? "" : "/" + r[:path_suffix] }}
 
-        @@router.add({{ r[:verb].upcase }}, _pika_path) do |_pika_env|
+        @@router.add({{ r[:verb].upcase }}, _pika_path,
+                     @@_pika_version, @@_pika_version_strategy, @@_pika_version_vendor) do |_pika_env|
           begin
             @@_pika_before_hooks.each(&.call(_pika_env))
             _pika_raw = Pika::Params.from_env(_pika_env)
