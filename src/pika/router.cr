@@ -1,4 +1,5 @@
 require "http/server"
+require "uuid"
 require "./versioning"
 
 module Pika
@@ -22,6 +23,40 @@ module Pika
       # Multiple versioned entries can share the same method+path key.
       @static  = {} of String => Array(RouteEntry)
       @dynamic = [] of DynRoute
+      @inflight = Atomic(Int32).new(0)
+      @draining = false
+    end
+
+    # Optional CORS policy; set via the API `cors` macro.
+    property cors : Pika::CORS? = nil
+
+    # Optional observability config; set via the API `observability`/`instrument` macros.
+    property observability : Pika::Observability? = nil
+
+    # Number of requests currently executing inside a handler.
+    def inflight : Int32
+      @inflight.get
+    end
+
+    def draining? : Bool
+      @draining
+    end
+
+    # Stop accepting new requests. In-flight requests are unaffected; further
+    # requests receive 503 until the process exits.
+    def begin_draining : Nil
+      @draining = true
+    end
+
+    # Block (cooperatively) until in-flight requests drain to zero or the
+    # timeout elapses. Returns true if fully drained, false on timeout.
+    def await_drain(timeout : Time::Span) : Bool
+      deadline = Time.instant + timeout
+      while @inflight.get > 0
+        return false if Time.instant >= deadline
+        sleep 10.milliseconds
+      end
+      true
     end
 
     def add(method : String, path : String,
@@ -59,6 +94,51 @@ module Pika
     end
 
     def call(ctx : HTTP::Server::Context)
+      # CORS: answer preflight directly, and stamp actual responses.
+      if cors = @cors
+        origin = ctx.request.headers["Origin"]?
+        if ctx.request.method == "OPTIONS" && ctx.request.headers.has_key?("Access-Control-Request-Method")
+          cors.apply_preflight(ctx, origin)
+          return
+        end
+        cors.apply_actual(ctx, origin)
+      end
+
+      # Observability: generate/propagate a request ID before anything else so
+      # handlers and downstream logs can see it.
+      obs = @observability
+      request_id = ""
+      if obs
+        request_id = ctx.request.headers["X-Request-Id"]? || UUID.random.to_s
+        ctx.request.headers["X-Request-Id"] = request_id
+        ctx.response.headers["X-Request-Id"] = request_id
+      end
+
+      # Reject new work once draining has begun so in-flight requests can finish.
+      if @draining
+        ctx.response.status_code = 503
+        ctx.response.content_type = "application/problem+json"
+        ctx.response.print({type: "about:blank", title: "Service Unavailable", status: 503}.to_json)
+        return
+      end
+
+      started = Time.instant
+      @inflight.add(1)
+      begin
+        dispatch(ctx)
+      ensure
+        @inflight.sub(1)
+      end
+
+      if obs
+        obs.record(Pika::RequestInfo.new(
+          ctx.request.method, ctx.request.path, ctx.response.status_code,
+          Time.instant - started, request_id,
+        ))
+      end
+    end
+
+    private def dispatch(ctx : HTTP::Server::Context)
       method = ctx.request.method
       path   = ctx.request.path
 

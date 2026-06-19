@@ -39,14 +39,19 @@ MyAPI.run  # 0.0.0.0:3000
 ## Features
 
 - **Routing** — `resource`, `namespace`, `route_param`, `version`, `mount`; hand-rolled router on Crystal's stdlib `HTTP::Server`, zero external dependencies
-- **Params** — `requires`/`optional` with type coercion (`String`, `Int32`, `Int64`, `Float64`, `Bool`, nilable variants); `regexp`, `values`, `length` constraints; `mutually_exclusive`, `at_least_one_of`, `exactly_one_of`; `params_from ModelClass` to derive params from a Clear model column schema
+- **Params** — `requires`/`optional` with type coercion (`String`, `Int32`, `Int64`, `Float64`, `Bool`, `UUID`, `Time`, `Array(T)`, nilable variants); `regexp`, `values`, `length` constraints; `mutually_exclusive`, `at_least_one_of`, `exactly_one_of`; `params_from ModelClass` to derive params from a Clear model column schema
+- **Request bodies** — JSON, `application/x-www-form-urlencoded`, and `multipart/form-data` (file uploads via `Pika::UploadedFile`) all decode into the same typed `declared_params`
+- **Response control** — set the status and headers from any handler with `status 201` / `header "Location", ...`; sensible verb defaults (empty `delete` → `204 No Content`)
 - **Hooks** — `before`/`after` blocks scoped per resource/namespace; errors raised in hooks are caught and formatted
 - **Helpers** — `helpers` block for class-level helper methods callable directly from handlers
 - **Entities** — `Pika::Entity(T)` with `pika_entity do...end` DSL; `expose :field`, conditional `expose :field, if: :flag`, computed `expose(:key) { |obj| expr }`; `present obj, using: EntityClass` in handlers
 - **Errors** — `Pika::Error` hierarchy with pluggable formatters: `error_formatter :rfc7807` (default), `:grape`, `:jsonapi`
-- **OpenAPI 3.1** — full spec via `MyAPI.openapi_doc`; `info title:, version:, description:` macro; `:param` → `{param}` path conversion; schemas derived from entity and param definitions
+- **OpenAPI 3.1** — full spec via `MyAPI.openapi_doc`; `info title:, version:, description:` macro; `:param` → `{param}` path conversion; `returns status, Entity` documents typed responses with `components/schemas` `$ref`s; raised error classes and validation 422s surface automatically
 - **Scalar UI** — `docs at: "/docs"` mounts an interactive API explorer + JSON spec endpoint directly on the API router
-- **Concurrency** — single-binary multi-thread via `--threads N` (`preview_mt`); multi-process horizontal scaling via `reuse_port: true` on `MyAPI.run`
+- **Testing** — `MyAPI.request(:post, "/users", json: {...})` drives the full middleware/handler chain in-process and returns a structured response — no socket
+- **CORS** — `cors origins: [...], credentials: true`; automatic preflight (`OPTIONS`) handling
+- **Observability** — opt-in structured access logging, per-request `X-Request-Id` generation/propagation, and an `instrument` hook for metrics/tracing
+- **Concurrency** — single-binary multi-thread via `--threads N` (`preview_mt`); multi-process horizontal scaling via `reuse_port: true` on `MyAPI.run`; graceful SIGTERM/SIGINT draining with a configurable timeout
 - **Clear ORM bridge** — `pika-clear` shard (separate, versioned independently): auto-derives OpenAPI schemas, request validation, and entity exposure from `Clear::Model` column definitions
 - **Authentication** — `pika-auth` shard (separate, versioned independently): Bearer token, API key, and HTTP Basic strategies with class-level defaults and per-resource overrides; failed auth raises `Pika::UnauthorizedError`
 
@@ -228,6 +233,34 @@ get do
 end
 ```
 
+### Supported types
+
+| Type | Coercion | OpenAPI |
+|---|---|---|
+| `String` | as-is; `regexp`, `length` constraints | `string` |
+| `Int32`, `Int64` | parsed; `values` constraint | `integer` |
+| `Float64` | parsed | `number` |
+| `Bool` | `"true"`/`"1"` → true, `"false"`/`"0"` → false | `boolean` |
+| `UUID` | parsed; malformed → 422 | `string`, `format: uuid` |
+| `Time` | RFC 3339 parsed; malformed → 422 | `string`, `format: date-time` |
+| `Array(T)` | JSON array, coerced element-wise (`T` ∈ scalar types) | `array` |
+| `Pika::UploadedFile` | from `multipart/form-data` (see [File uploads](#file-uploads)) | `string`, `format: binary` |
+
+Any of these may be nilable (`Int32?`, `UUID?`, …). A nilable optional param that is absent becomes `nil`.
+
+```crystal
+params do
+  requires id    : UUID
+  requires tags  : Array(String)
+  requires qtys  : Array(Int32)
+  optional since : Time
+end
+```
+
+Array and nested-object payloads are read from the JSON request body. Malformed values for any typed param produce a `422` with a per-field message before your handler runs.
+
+> **Note:** nested-object params (`requires items : Array(SomeStruct)`) are not yet supported — model nested data by reading `declared_params` arrays of scalars or parsing `env.request.body` directly. Tracked for a future release.
+
 ### Deriving params from a Clear model
 
 ```crystal
@@ -235,6 +268,98 @@ params_from User, only: [:name, :email, :role]
 ```
 
 Reads `User::PIKA_COLUMNS` (generated by `pika-clear`) and creates `requires`/`optional` entries matching the column types. Nilable columns (`Int32?`, `String?`) become `optional` params; non-nilable columns become `requires`.
+
+---
+
+## Response control
+
+Handlers return a body, but you can also set the status code and response headers directly. `status` and `header` are available in any handler (and in `before`/`after` hooks):
+
+```crystal
+resource :users do
+  desc "Create a user"
+  params do
+    requires name  : String
+    requires email : String
+  end
+  post do
+    user = create_user(declared_params)
+    status 201
+    header "Location", "/v1/users/#{user.id}"
+    present user, using: UserEntity
+  end
+end
+```
+
+### Verb defaults
+
+An empty `delete` body defaults to `204 No Content` automatically — no body, no `200`:
+
+```crystal
+route_param :id do
+  delete do
+    destroy_user(declared_params.id)
+    nil          # → 204 No Content
+  end
+end
+```
+
+A handler that sets an explicit status always wins; the default only applies when you leave it untouched.
+
+---
+
+## File uploads
+
+Request bodies decode by `Content-Type`: JSON, `application/x-www-form-urlencoded`, and `multipart/form-data` all populate the same `declared_params`. Declare a file field as `Pika::UploadedFile`:
+
+```crystal
+resource :avatars do
+  params do
+    requires title  : String
+    requires avatar : Pika::UploadedFile
+  end
+  post do
+    file = declared_params.avatar
+    store(file.filename, file.content)        # content : Bytes
+    {title: declared_params.title, bytes: file.size}.to_json
+  end
+end
+```
+
+`Pika::UploadedFile` exposes `filename`, `content_type`, `content` (`Bytes`), `size`, `empty?`, and `gets_to_string` (decode as UTF-8). A required file that is missing returns a `422`. In OpenAPI the field is rendered as `type: string, format: binary` and the operation's request body switches to `multipart/form-data`.
+
+Plain form fields (no file) parse just like JSON keys, with the same type coercion:
+
+```crystal
+resource :forms do
+  params do
+    requires name  : String
+    requires count : Int32        # "count=7" → 7
+  end
+  post { {name: declared_params.name, count: declared_params.count}.to_json }
+end
+```
+
+---
+
+## Testing
+
+`MyAPI.request` runs the full router → hooks → validation → handler → hooks chain in-process and returns a structured response — no socket bound, no port:
+
+```crystal
+require "spec"
+
+describe MyAPI do
+  it "creates a user" do
+    response = MyAPI.request(:post, "/v1/users", json: {name: "ada", email: "ada@example.com"})
+    response.status.should eq 201
+    response.headers["Location"]?.should_not be_nil
+    response.json["created"].as_bool.should be_true
+  end
+end
+```
+
+`request(method, path, *, json: nil, body: "", query: "", headers: HTTP::Headers.new)` returns a `Pika::TestResponse` with `#status`, `#headers`, `#body`, and `#json` (parses the body as `JSON::Any`).
 
 ---
 
@@ -362,11 +487,39 @@ Pika generates a full OpenAPI 3.1 document from the same DSL used to define rout
 | `desc "..."` | `summary` field on the operation |
 | `requires name : String` | Required query parameter or request body field |
 | `optional score : Float64` | Optional query parameter or request body field |
-| `params` on `POST`/`PUT`/`PATCH` | `requestBody` with `application/json` schema |
+| `params` on `POST`/`PUT`/`PATCH` | `requestBody` with `application/json` (or `multipart/form-data` for file fields) schema |
 | `params` on `GET`/`DELETE` | `parameters` array with `in: query` |
+| `requires avatar : Pika::UploadedFile` | `string`/`format: binary` field in a `multipart/form-data` body |
+| `returns 201, UserEntity` | `201` response with a `$ref` to the entity schema in `components/schemas` |
+| `raise Pika::NotFoundError` in a handler | `404` response documented against the `PikaError` schema |
+| `params` present (no explicit `returns`) | `422` validation response added automatically |
+| `delete` with an empty body | `204 No Content` documented as the success response |
 | `info title:, version:, description:` | `info` object in the document root |
 
 Path parameters use `:name` in the router and are converted to `{name}` in the OpenAPI output automatically.
+
+### Documenting responses with `returns`
+
+By default Pika documents a success response (`200`, or `204` for empty deletes) plus a `422` for any route with params and a response for each error class the handler raises. To attach a real schema, declare `returns` before the verb — the entity's exposed fields become a schema in `components/schemas`, referenced by `$ref`:
+
+```crystal
+resource :users do
+  desc "Create a user"
+  params do
+    requires name  : String
+    requires email : String
+  end
+  returns 201, UserEntity   # documents 201 with the entity schema
+  returns 422               # documents 422 with the generic PikaError schema
+  post do
+    user = create_user(declared_params)
+    status 201
+    present user, using: UserEntity
+  end
+end
+```
+
+`returns status, EntityClass` references the entity's schema; `returns status` on a 4xx/5xx code references the built-in `PikaError` schema. When you declare `returns`, those become the operation's documented responses verbatim. This closes the loop on design principle #4: every entity that can appear in a response is also present in the spec.
 
 ### Setting API metadata
 
@@ -511,7 +664,13 @@ For the route definition above, `MyAPI.openapi_doc` produces:
             }
           }
         },
-        "responses": { "200": { "description": "OK" } }
+        "responses": {
+          "200": { "description": "OK" },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PikaError" } } }
+          }
+        }
       }
     },
     "/v1/users/{id}": {
@@ -529,12 +688,28 @@ For the route definition above, `MyAPI.openapi_doc` produces:
         "parameters": [
           { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
         ],
-        "responses": { "200": { "description": "OK" } }
+        "responses": { "204": { "description": "No Content" } }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "PikaError": {
+        "type": "object",
+        "properties": {
+          "type":   { "type": "string" },
+          "title":  { "type": "string" },
+          "status": { "type": "integer" },
+          "detail": { "type": "string" },
+          "errors": { "type": "array" }
+        }
       }
     }
   }
 }
 ```
+
+The `422` response and the `PikaError` component are emitted automatically because the `POST` declares params; the `DELETE` documents `204` because its handler returns an empty body. Declaring `returns 201, UserEntity` on the `POST` would replace its `200` with a `201` referencing a `UserEntity` schema.
 
 ### Mounted sub-APIs
 
@@ -875,6 +1050,60 @@ end
 
 ---
 
+## CORS
+
+Enable CORS with the `cors` macro. Preflight (`OPTIONS`) requests are answered automatically by the router; actual responses receive the allow headers.
+
+```crystal
+class MyAPI < Pika::API
+  cors origins:     ["https://app.example.com"],
+       methods:     ["GET", "POST", "PUT", "PATCH", "DELETE"],
+       headers:     ["Content-Type", "Authorization"],
+       credentials: true,
+       max_age:     600
+
+  resource :widgets do
+    get { "[]" }
+  end
+end
+```
+
+All arguments are optional. The default policy is permissive (`origins: ["*"]`, common methods, `Content-Type`/`Authorization` headers, no credentials). A request from a disallowed origin simply receives no CORS headers; a wildcard policy without credentials answers with `*`, while a credentialed policy echoes the concrete origin (the spec forbids `*` with credentials).
+
+---
+
+## Observability
+
+Opt in to per-request structured logging and request IDs with `observability`. When enabled, the router generates an `X-Request-Id` (or propagates an incoming one), exposes it to handlers, and emits one JSON access-log line per request:
+
+```crystal
+class MyAPI < Pika::API
+  observability                 # JSON access log + request IDs
+  # observability log: false    # request IDs only, no log line
+
+  resource :users do
+    get do
+      Log.info { "handling request #{request_id}" }   # request_id available in handlers
+      "[]"
+    end
+  end
+end
+```
+
+Each request also passes through an `instrument` hook — the extension point for metrics and tracing:
+
+```crystal
+class MyAPI < Pika::API
+  instrument do |info|
+    Metrics.timing("http.request", info.duration, tags: {path: info.path, status: info.status})
+  end
+end
+```
+
+The `info` is a `Pika::RequestInfo` carrying `method`, `path`, `status`, `duration` (a `Time::Span`), and `request_id`. The response always carries the `X-Request-Id` header so it can be correlated across services.
+
+---
+
 ## Concurrency & scaling
 
 ```crystal
@@ -886,6 +1115,16 @@ MyAPI.run(port: 3000, reuse_port: true)
 ```
 
 Compile with `--threads N` for the multi-threaded build. For multi-process, spawn `N` copies with `reuse_port: true`; the OS load-balances across them.
+
+### Graceful shutdown
+
+`run` traps `SIGTERM` and `SIGINT`. On receipt, the server stops accepting new connections (in-flight-aware: new requests get `503`), drains requests already executing, and then closes. The drain window is configurable:
+
+```crystal
+MyAPI.run(port: 3000, shutdown_timeout: 30.seconds)   # default 30s
+```
+
+If in-flight requests do not finish within `shutdown_timeout`, the server forces the close. This makes Pika safe to roll under Kubernetes/ECS, where the orchestrator sends `SIGTERM` before removing the pod from the load balancer.
 
 ---
 
@@ -1046,8 +1285,10 @@ mount V2::UsersAPI
 | v0.6 — benchmarks, `reuse_port`, `params_from` | ✅ complete |
 | v0.7 — authentication strategies (`pika-auth` shard) | ✅ complete |
 | v0.8 — header and Accept-header versioning | ✅ complete |
-| v0.9 — XML and MessagePack response formatters | planned |
-| v0.10 — async/streaming responses | planned |
+| v0.9 — response control, typed response/error schemas, UUID/Time/Array params, file uploads, test harness, CORS, observability, graceful shutdown | ✅ complete |
+| v0.10 — XML and MessagePack response formatters | planned |
+| v0.11 — async/streaming responses | planned |
+| v0.12 — nested-object params | planned |
 | v1.0 — API freeze, docs site, launch | planned |
 
 ---

@@ -1,13 +1,21 @@
 require "json"
+require "http"
 require "./error"
+require "./upload"
 
 module Pika
-  # Extracts raw values for a given param name from the request, searching
-  # query string, JSON body, and path params (query_params is populated with
-  # path params by the router).
+  # Extracts request parameters, searching query string, path params (populated
+  # by the router), and the body. Bodies are decoded per Content-Type:
+  #   application/json                   → object keys
+  #   application/x-www-form-urlencoded  → form fields
+  #   multipart/form-data                → text fields + uploaded files
   module Params
-    def self.from_env(env : HTTP::Server::Context) : Hash(String, String)
-      raw = {} of String => String
+    alias Parsed = {raw: Hash(String, String), files: Hash(String, UploadedFile)}
+
+    # Full extraction: scalar/text fields in :raw, uploaded files in :files.
+    def self.parse(env : HTTP::Server::Context) : Parsed
+      raw   = {} of String => String
+      files = {} of String => UploadedFile
 
       env.request.query_params.each do |k, v|
         raw[k] = v
@@ -15,27 +23,56 @@ module Pika
 
       ct = env.request.headers["Content-Type"]? || ""
       if ct.includes?("application/json")
+        parse_json_body(env, raw)
+      elsif ct.includes?("application/x-www-form-urlencoded")
         body = env.request.body.try(&.gets_to_end) || ""
-        unless body.empty?
-          begin
-            parsed = JSON.parse(body)
-            if obj = parsed.as_h?
-              obj.each do |k, v|
-                raw[k] = case v.raw
-                          when Int64   then v.as_i64.to_s
-                          when Float64 then v.as_f.to_s
-                          when Bool    then v.as_bool.to_s
-                          when String  then v.as_s
-                          else              v.to_json
-                          end
-              end
-            end
-          rescue JSON::ParseException
-          end
-        end
+        URI::Params.parse(body).each { |k, v| raw[k] = v } unless body.empty?
+      elsif ct.includes?("multipart/form-data")
+        parse_multipart(env, raw, files)
       end
 
-      raw
+      {raw: raw, files: files}
+    end
+
+    # Back-compat: just the text/scalar fields.
+    def self.from_env(env : HTTP::Server::Context) : Hash(String, String)
+      parse(env)[:raw]
+    end
+
+    private def self.parse_json_body(env : HTTP::Server::Context, raw : Hash(String, String)) : Nil
+      body = env.request.body.try(&.gets_to_end) || ""
+      return if body.empty?
+      begin
+        parsed = JSON.parse(body)
+        if obj = parsed.as_h?
+          obj.each do |k, v|
+            raw[k] = case v.raw
+                      when Int64   then v.as_i64.to_s
+                      when Float64 then v.as_f.to_s
+                      when Bool    then v.as_bool.to_s
+                      when String  then v.as_s
+                      else              v.to_json
+                      end
+          end
+        end
+      rescue JSON::ParseException
+      end
+    end
+
+    private def self.parse_multipart(env : HTTP::Server::Context,
+                                     raw : Hash(String, String),
+                                     files : Hash(String, UploadedFile)) : Nil
+      HTTP::FormData.parse(env.request) do |part|
+        if fn = part.filename
+          files[part.name] = UploadedFile.new(
+            filename:     fn,
+            content_type: part.headers["Content-Type"]? || "application/octet-stream",
+            content:      part.body.gets_to_end.to_slice,
+          )
+        else
+          raw[part.name] = part.body.gets_to_end
+        end
+      end
     end
   end
 end

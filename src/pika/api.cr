@@ -1,5 +1,6 @@
 require "http/server"
 require "json"
+require "uuid"
 require "./version"
 require "./versioning"
 require "./error"
@@ -17,6 +18,7 @@ module Pika
 
     @@router                  = Pika::Router.new
     @@openapi_routes          = [] of Pika::OpenAPI::RouteSpec
+    @@openapi_schemas         = {} of String => JSON::Any
     @@_pika_version           = ""
     @@_pika_version_strategy  = Pika::VersionStrategy::Path
     @@_pika_version_vendor    = ""
@@ -39,6 +41,7 @@ module Pika
 
     def self.router          : Pika::Router;                    @@router;          end
     def self.openapi_routes  : Array(Pika::OpenAPI::RouteSpec); @@openapi_routes;  end
+    def self.openapi_schemas : Hash(String, JSON::Any);         @@openapi_schemas; end
     def self.openapi         : String;                          Pika::OpenAPI.emit_paths(@@openapi_routes); end
 
     def self.openapi_doc : String
@@ -47,6 +50,7 @@ module Pika
         title:       @@_pika_info_title.empty? ? name : @@_pika_info_title,
         version:     @@_pika_info_version,
         description: @@_pika_info_description,
+        schemas:     @@openapi_schemas,
       )
     end
 
@@ -54,6 +58,35 @@ module Pika
     # Call from inside a handler block: present user, using: UserEntity
     def self.present(obj, using entity_class, **opts) : String
       entity_class.represent(obj, **opts)
+    end
+
+    # ---------------------------------------------------------------------------
+    # status / header — set the response status code and headers from a handler.
+    #
+    # These are macros, not methods: they expand to operations on the `env`
+    # local that is in scope inside every generated handler (and before/after
+    # hook) block. That keeps them fully lexical — no shared request state — so
+    # they are correct under multi-threading and concurrent fibers.
+    #
+    #   post do
+    #     user = create_user(declared_params)
+    #     status 201
+    #     header "Location", "/v1/users/#{user.id}"
+    #     present user, using: UserEntity
+    #   end
+    # ---------------------------------------------------------------------------
+    macro status(code)
+      env.response.status_code = ({{ code }})
+    end
+
+    macro header(name, value)
+      env.response.headers[{{ name }}] = ({{ value }})
+    end
+
+    # request_id — the per-request ID inside a handler (empty if observability
+    # is not enabled). The router sets it on both request and response headers.
+    macro request_id
+      (env.request.headers["X-Request-Id"]? || "")
     end
 
     # ---------------------------------------------------------------------------
@@ -108,6 +141,55 @@ module Pika
         _pika_env.response.content_type = "application/json"
         {{ @type }}.openapi_doc
       end
+    end
+
+    # ---------------------------------------------------------------------------
+    # observability — enable per-request structured logging + request IDs.
+    #
+    #   observability                 # JSON access log line per request
+    #   observability log: false      # request IDs only, no log line
+    # ---------------------------------------------------------------------------
+    macro observability(log = true)
+      (@@router.observability ||= Pika::Observability.new).log = {{ log }}
+    end
+
+    # instrument — register a metrics/tracing callback run after every request.
+    # This is the documented extension point other tooling attaches to.
+    #
+    #   instrument do |info|
+    #     Metrics.timing(info.path, info.duration)
+    #   end
+    # ---------------------------------------------------------------------------
+    macro instrument(&block)
+      (@@router.observability ||= Pika::Observability.new(log: false)).instrument =
+        ->(_pika_info : Pika::RequestInfo) {
+          {% if block.args.size > 0 %}{{ block.args[0].id }} = _pika_info{% end %}
+          {{ block.body }}
+          nil
+        }
+    end
+
+    # ---------------------------------------------------------------------------
+    # cors — enable CORS for this API. Preflight (OPTIONS) is handled
+    # automatically by the router; actual responses get the allow headers.
+    #
+    #   cors origins: ["https://app.example.com"],
+    #        methods: ["GET", "POST"],
+    #        headers: ["Content-Type", "Authorization"],
+    #        credentials: true
+    # ---------------------------------------------------------------------------
+    macro cors(origins = ["*"],
+               methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+               headers = ["Content-Type", "Authorization"],
+               credentials = false,
+               max_age = 600)
+      @@router.cors = Pika::CORS.new(
+        origins:     {{ origins }},
+        methods:     {{ methods }},
+        headers:     {{ headers }},
+        credentials: {{ credentials }},
+        max_age:     {{ max_age }},
+      )
     end
 
     # ---------------------------------------------------------------------------
@@ -203,6 +285,7 @@ module Pika
         @@router.add(_m_method, _pika_mount_prefix + _m_path, _m_ver, _m_strat, _m_vendor, &_m_handler)
       end
       @@openapi_routes.concat({{ api_class }}.openapi_routes)
+      {{ api_class }}.openapi_schemas.each { |_k, _v| @@openapi_schemas[_k] = _v }
     end
 
     # ---------------------------------------------------------------------------
@@ -243,6 +326,7 @@ module Pika
       {% pending_desc    = "" %}
       {% pending_body    = [] of Nil %}
       {% pending_mutex   = [] of Nil %}
+      {% pending_returns = [] of Nil %}
 
       {% if block.body.is_a?(Expressions) %}
         {% stmts = block.body.expressions %}
@@ -257,6 +341,12 @@ module Pika
           {% if expr.name == "desc" %}
             {% pending_desc = expr.args[0] %}
 
+          # --- returns --------------------------------------------------------
+          # returns 201, UserEntity   # documents a 201 response with the entity schema
+          # returns 422               # documents a 422 with the generic error schema
+          {% elsif expr.name == "returns" %}
+            {% pending_returns << {status: expr.args[0], entity: (expr.args.size > 1 ? expr.args[1] : nil)} %}
+
           # --- params ---------------------------------------------------------
           {% elsif expr.name == "params" %}
             {% pending_body  = [] of Nil %}
@@ -268,9 +358,10 @@ module Pika
                 {% if pexpr.name == "requires" || pexpr.name == "optional" %}
                   {% decl = pexpr.args[0] %}
                   {% ts = decl.type.stringify %}
-                  {% if ts == "Int32" || ts == "Int64" || ts == "Int32?" || ts == "Int64?" %}{% oa = "integer" %}
-                  {% elsif ts == "Float32" || ts == "Float64" || ts == "Float64?" %}{% oa = "number" %}
-                  {% elsif ts == "Bool" || ts == "Bool?" %}{% oa = "boolean" %}
+                  {% if ts.starts_with?("Array") %}{% oa = "array" %}
+                  {% elsif ts.includes?("Int32") || ts.includes?("Int64") %}{% oa = "integer" %}
+                  {% elsif ts.includes?("Float32") || ts.includes?("Float64") %}{% oa = "number" %}
+                  {% elsif ts.includes?("Bool") %}{% oa = "boolean" %}
                   {% else %}{% oa = "string" %}{% end %}
                   {% rg = nil %}{% va = nil %}{% le = nil %}
                   {% if pexpr.named_args %}
@@ -330,6 +421,7 @@ module Pika
             {% rp_pending_desc  = "" %}
             {% rp_pending_body  = [] of Nil %}
             {% rp_pending_mutex = [] of Nil %}
+            {% rp_pending_returns = [] of Nil %}
             {% rp_pb = expr.block.body %}
             {% if rp_pb.is_a?(Expressions) %}{% rp_stmts = rp_pb.expressions %}{% else %}{% rp_stmts = [rp_pb] %}{% end %}
 
@@ -337,6 +429,9 @@ module Pika
               {% if rp_expr.is_a?(Call) %}
                 {% if rp_expr.name == "desc" %}
                   {% rp_pending_desc = rp_expr.args[0] %}
+
+                {% elsif rp_expr.name == "returns" %}
+                  {% rp_pending_returns << {status: rp_expr.args[0], entity: (rp_expr.args.size > 1 ? rp_expr.args[1] : nil)} %}
 
                 {% elsif rp_expr.name == "params" %}
                   {% rp_pending_body  = [] of Nil %}
@@ -348,9 +443,10 @@ module Pika
                       {% if rp_pexpr.name == "requires" || rp_pexpr.name == "optional" %}
                         {% rp_decl = rp_pexpr.args[0] %}
                         {% rp_ts = rp_decl.type.stringify %}
-                        {% if rp_ts == "Int32" || rp_ts == "Int64" || rp_ts == "Int32?" || rp_ts == "Int64?" %}{% rp_oa = "integer" %}
-                        {% elsif rp_ts == "Float32" || rp_ts == "Float64" || rp_ts == "Float64?" %}{% rp_oa = "number" %}
-                        {% elsif rp_ts == "Bool" || rp_ts == "Bool?" %}{% rp_oa = "boolean" %}
+                        {% if rp_ts.starts_with?("Array") %}{% rp_oa = "array" %}
+                        {% elsif rp_ts.includes?("Int32") || rp_ts.includes?("Int64") %}{% rp_oa = "integer" %}
+                        {% elsif rp_ts.includes?("Float32") || rp_ts.includes?("Float64") %}{% rp_oa = "number" %}
+                        {% elsif rp_ts.includes?("Bool") %}{% rp_oa = "boolean" %}
                         {% else %}{% rp_oa = "string" %}{% end %}
                         {% rp_rg = nil %}{% rp_va = nil %}{% rp_le = nil %}
                         {% if rp_pexpr.named_args %}
@@ -380,10 +476,11 @@ module Pika
                   {% route_list << {verb: rp_verb, struct_name: rp_sn,
                                     summary: rp_pending_desc, body_params: rp_pending_body,
                                     mutex_groups: rp_pending_mutex, path_suffix: ":" + rp_name,
-                                    rp_name: rp_name, handler: rp_expr.block} %}
-                  {% rp_pending_desc  = "" %}
-                  {% rp_pending_body  = [] of Nil %}
-                  {% rp_pending_mutex = [] of Nil %}
+                                    rp_name: rp_name, handler: rp_expr.block, returns: rp_pending_returns} %}
+                  {% rp_pending_desc    = "" %}
+                  {% rp_pending_body    = [] of Nil %}
+                  {% rp_pending_mutex   = [] of Nil %}
+                  {% rp_pending_returns = [] of Nil %}
                 {% end %}
               {% end %}
             {% end %}
@@ -395,10 +492,11 @@ module Pika
             {% route_list << {verb: verb, struct_name: sn,
                               summary: pending_desc, body_params: pending_body,
                               mutex_groups: pending_mutex, path_suffix: "",
-                              rp_name: "", handler: expr.block} %}
-            {% pending_desc  = "" %}
-            {% pending_body  = [] of Nil %}
-            {% pending_mutex = [] of Nil %}
+                              rp_name: "", handler: expr.block, returns: pending_returns} %}
+            {% pending_desc    = "" %}
+            {% pending_body    = [] of Nil %}
+            {% pending_mutex   = [] of Nil %}
+            {% pending_returns = [] of Nil %}
           {% end %}
 
         {% end %}
@@ -430,7 +528,8 @@ module Pika
         end
 
         # --- validate! method ------------------------------------------------
-        def self.validate_{{ sn.downcase.id }}!(raw : Hash(String, String)) : {{ sn.id }}
+        def self.validate_{{ sn.downcase.id }}!(raw : Hash(String, String),
+                                                files : Hash(String, Pika::UploadedFile) = {} of String => Pika::UploadedFile) : {{ sn.id }}
           _errors = [] of {field: String, message: String}
 
           {% for p in r[:body_params] %}
@@ -440,7 +539,72 @@ module Pika
             {% ts      = p[:type].stringify %}
             {% nilable = ts.includes?("Nil") || ts.ends_with?("?") %}
 
-            {% if ts.includes?("String") %}
+            {% if ts.includes?("UploadedFile") %}
+              # File params come from multipart/form-data, not the raw text hash.
+              _val_{{ p[:name] }} : {{ p[:type] }} = {% if nilable %}nil{% else %}Pika::UploadedFile.empty{% end %}
+              if _f = files[{{ p[:name].stringify }}]?
+                _val_{{ p[:name] }} = _f
+              else
+                {% unless p[:opt] %}
+                  _errors << {field: {{ p[:name].stringify }}, message: "is required"}
+                {% end %}
+              end
+
+            {% elsif ts.starts_with?("Array") %}
+              # Array params arrive as a JSON array (typically in a JSON body).
+              _val_{{ p[:name] }} : {{ p[:type] }} = {% if nilable %}nil{% else %}{{ p[:type] }}.new{% end %}
+              if _v = _raw_{{ p[:name] }}
+                begin
+                  _arr_{{ p[:name] }} = JSON.parse(_v).as_a?
+                  if _arr_{{ p[:name] }}
+                    _val_{{ p[:name] }} = _arr_{{ p[:name] }}.map do |_e|
+                      {% if ts.includes?("Int64") %} _e.as_i64
+                      {% elsif ts.includes?("Int32") %} _e.as_i
+                      {% elsif ts.includes?("Float64") %} _e.as_f
+                      {% elsif ts.includes?("Bool") %} _e.as_bool
+                      {% else %} _e.as_s {% end %}
+                    end
+                  else
+                    _errors << {field: {{ p[:name].stringify }}, message: "must be an array"}
+                  end
+                rescue
+                  _errors << {field: {{ p[:name].stringify }}, message: "must be an array of the correct element type"}
+                end
+              else
+                {% unless p[:opt] %}
+                  _errors << {field: {{ p[:name].stringify }}, message: "is required"}
+                {% end %}
+              end
+
+            {% elsif ts.includes?("UUID") %}
+              _val_{{ p[:name] }} : {{ p[:type] }} = {% if nilable %}nil{% else %}UUID.empty{% end %}
+              if _v = _raw_{{ p[:name] }}
+                begin
+                  _val_{{ p[:name] }} = UUID.new(_v)
+                rescue
+                  _errors << {field: {{ p[:name].stringify }}, message: "must be a valid UUID"}
+                end
+              else
+                {% unless p[:opt] %}
+                  _errors << {field: {{ p[:name].stringify }}, message: "is required"}
+                {% end %}
+              end
+
+            {% elsif ts.includes?("Time") %}
+              _val_{{ p[:name] }} : {{ p[:type] }} = {% if nilable %}nil{% else %}Time::UNIX_EPOCH{% end %}
+              if _v = _raw_{{ p[:name] }}
+                begin
+                  _val_{{ p[:name] }} = Time.parse_rfc3339(_v)
+                rescue
+                  _errors << {field: {{ p[:name].stringify }}, message: "must be an RFC 3339 timestamp"}
+                end
+              else
+                {% unless p[:opt] %}
+                  _errors << {field: {{ p[:name].stringify }}, message: "is required"}
+                {% end %}
+              end
+
+            {% elsif ts.includes?("String") %}
               _val_{{ p[:name] }} : {{ p[:type] }} = {% if nilable %}nil{% else %}""{% end %}
               if _v = _raw_{{ p[:name] }}
                 _val_{{ p[:name] }} = _v
@@ -563,12 +727,19 @@ module Pika
                      @@_pika_version, @@_pika_version_strategy, @@_pika_version_vendor) do |_pika_env|
           begin
             @@_pika_before_hooks.each(&.call(_pika_env))
-            _pika_raw = Pika::Params.from_env(_pika_env)
-            declared_params = validate_{{ sn.downcase.id }}!(_pika_raw)
+            _pika_parsed = Pika::Params.parse(_pika_env)
+            declared_params = validate_{{ sn.downcase.id }}!(_pika_parsed[:raw], _pika_parsed[:files])
             env = _pika_env
             env.response.content_type = "application/json"
             result = ({{ r[:handler].body }})
             @@_pika_after_hooks.each(&.call(_pika_env))
+            {% if r[:verb] == "delete" %}
+              # Sensible verb default: an empty delete body becomes 204 No Content,
+              # unless the handler set an explicit non-200 status itself.
+              if (result.nil? || result.to_s.empty?) && _pika_env.response.status_code == 200
+                _pika_env.response.status_code = 204
+              end
+            {% end %}
             result ? result.to_s : nil
           rescue e : Pika::ValidationError
             @@_pika_fmt_validation.call(_pika_env, e)
@@ -577,10 +748,59 @@ module Pika
           end
         end
 
+        # --- Response schemas -------------------------------------------------
+        {% returns = r[:returns] %}
+        {% hsrc    = r[:handler].body.stringify %}
+        {% has_params = !r[:body_params].empty? %}
+        {% scan_err = returns.empty? && (has_params ||
+             hsrc.includes?("NotFoundError") || hsrc.includes?("UnauthorizedError") ||
+             hsrc.includes?("ForbiddenError") || hsrc.includes?("ConflictError")) %}
+
+        {% bare_error_return = false %}
+        {% for ret in returns %}
+          {% if ret[:entity] %}
+            @@openapi_schemas[{{ ret[:entity] }}.pika_schema_name] = {{ ret[:entity] }}.pika_openapi_schema
+          {% elsif ret[:status] >= 400 %}
+            {% bare_error_return = true %}
+          {% end %}
+        {% end %}
+        {% if scan_err || bare_error_return %}
+          @@openapi_schemas["PikaError"] = Pika::OpenAPI.error_schema
+        {% end %}
+
         @@openapi_routes << Pika::OpenAPI::RouteSpec.new(
           method:  {{ r[:verb] }},
           path:    _pika_path,
           summary: {{ r[:summary] }},
+          responses: [
+            {% if returns.empty? %}
+              {% succ = r[:verb] == "delete" ? 204 : 200 %}
+              Pika::OpenAPI::ResponseSpec.new(status: {{ succ }}, description: Pika::OpenAPI.status_description({{ succ }}), schema_ref: nil),
+              {% if has_params %}
+                Pika::OpenAPI::ResponseSpec.new(status: 422, description: Pika::OpenAPI.status_description(422), schema_ref: "PikaError"),
+              {% end %}
+              {% if hsrc.includes?("NotFoundError") %}
+                Pika::OpenAPI::ResponseSpec.new(status: 404, description: Pika::OpenAPI.status_description(404), schema_ref: "PikaError"),
+              {% end %}
+              {% if hsrc.includes?("UnauthorizedError") %}
+                Pika::OpenAPI::ResponseSpec.new(status: 401, description: Pika::OpenAPI.status_description(401), schema_ref: "PikaError"),
+              {% end %}
+              {% if hsrc.includes?("ForbiddenError") %}
+                Pika::OpenAPI::ResponseSpec.new(status: 403, description: Pika::OpenAPI.status_description(403), schema_ref: "PikaError"),
+              {% end %}
+              {% if hsrc.includes?("ConflictError") %}
+                Pika::OpenAPI::ResponseSpec.new(status: 409, description: Pika::OpenAPI.status_description(409), schema_ref: "PikaError"),
+              {% end %}
+            {% else %}
+              {% for ret in returns %}
+                Pika::OpenAPI::ResponseSpec.new(
+                  status:      {{ ret[:status] }},
+                  description: Pika::OpenAPI.status_description({{ ret[:status] }}),
+                  schema_ref:  {% if ret[:entity] %}{{ ret[:entity] }}.pika_schema_name{% elsif ret[:status] >= 400 %}"PikaError"{% else %}nil{% end %},
+                ),
+              {% end %}
+            {% end %}
+          ] of Pika::OpenAPI::ResponseSpec,
           parameters: [
             {% unless r[:rp_name].empty? %}
               Pika::OpenAPI::ParameterSpec.new(name: {{ r[:rp_name] }}, location: "path", required: true, schema_type: "string"),
@@ -594,8 +814,8 @@ module Pika
           ] of Pika::OpenAPI::ParameterSpec,
           {% if has_body %}
             request_body: Pika::OpenAPI::RequestBodySpec.new(
-              required_fields: [{% for p in r[:body_params] %}{% if p[:required] %}{name: {{ p[:name].stringify }}, schema_type: {{ p[:oa_type] }}},{% end %}{% end %}] of {name: String, schema_type: String},
-              optional_fields: [{% for p in r[:body_params] %}{% unless p[:required] %}{name: {{ p[:name].stringify }}, schema_type: {{ p[:oa_type] }}},{% end %}{% end %}] of {name: String, schema_type: String},
+              required_fields: [{% for p in r[:body_params] %}{% if p[:required] %}{% pt = p[:type].stringify %}{name: {{ p[:name].stringify }}, schema_type: {{ p[:oa_type] }}, format: {{ pt.includes?("UploadedFile") ? "binary" : (pt.includes?("UUID") ? "uuid" : (pt.includes?("Time") ? "date-time" : "")) }}},{% end %}{% end %}] of {name: String, schema_type: String, format: String},
+              optional_fields: [{% for p in r[:body_params] %}{% unless p[:required] %}{% pt = p[:type].stringify %}{name: {{ p[:name].stringify }}, schema_type: {{ p[:oa_type] }}, format: {{ pt.includes?("UploadedFile") ? "binary" : (pt.includes?("UUID") ? "uuid" : (pt.includes?("Time") ? "date-time" : "")) }}},{% end %}{% end %}] of {name: String, schema_type: String, format: String},
             ),
           {% else %}
             request_body: nil,
@@ -608,10 +828,59 @@ module Pika
     # Server lifecycle
     # ---------------------------------------------------------------------------
 
-    def self.run(host : String = "0.0.0.0", port : Int32 = 3000, reuse_port : Bool = false)
+    # ---------------------------------------------------------------------------
+    # request — in-process testing harness.
+    #
+    # Runs the full router → before-hook → validation → handler → after-hook chain
+    # without binding a socket, and returns a structured Pika::TestResponse.
+    #
+    #   response = MyAPI.request(:post, "/v1/users", json: {name: "x"})
+    #   response.status.should eq 201
+    #   response.json["created"].should be_true
+    # ---------------------------------------------------------------------------
+    def self.request(method : String | Symbol, path : String, *,
+                     json = nil, body : String = "", query : String = "",
+                     headers : HTTP::Headers = HTTP::Headers.new) : Pika::TestResponse
+      full_path = query.empty? ? path : "#{path}?#{query}"
+      req = HTTP::Request.new(method.to_s.upcase, full_path, headers)
+
+      if json
+        req.body = IO::Memory.new(json.to_json)
+        req.headers["Content-Type"] = "application/json" unless req.headers.has_key?("Content-Type")
+      elsif !body.empty?
+        req.body = IO::Memory.new(body)
+      end
+
+      io  = IO::Memory.new
+      ctx = HTTP::Server::Context.new(req, HTTP::Server::Response.new(io))
+      @@router.call(ctx)
+      ctx.response.close
+
+      io.rewind
+      parsed = HTTP::Client::Response.from_io(io)
+      Pika::TestResponse.new(parsed.status_code, parsed.headers, parsed.body)
+    end
+
+    def self.run(host : String = "0.0.0.0", port : Int32 = 3000, reuse_port : Bool = false,
+                 shutdown_timeout : Time::Span = 30.seconds)
       server = HTTP::Server.new { |ctx| @@router.call(ctx) }
       address = server.bind_tcp(host, port, reuse_port: reuse_port)
       puts "Pika #{Pika::VERSION} listening on http://#{address}"
+
+      # Graceful shutdown: on SIGTERM/SIGINT, stop accepting new connections,
+      # drain in-flight requests (up to shutdown_timeout), then close.
+      {% unless flag?(:win32) %}
+        shutdown = ->(_sig : Signal) do
+          puts "Pika draining (timeout #{shutdown_timeout})…"
+          @@router.begin_draining
+          drained = @@router.await_drain(shutdown_timeout)
+          puts drained ? "Pika drained cleanly" : "Pika drain timed out; forcing close"
+          server.close
+        end
+        Signal::TERM.trap(&shutdown)
+        Signal::INT.trap(&shutdown)
+      {% end %}
+
       server.listen
     end
   end
