@@ -49,6 +49,7 @@ MyAPI.run  # 0.0.0.0:3000
 - **OpenAPI 3.1** — full spec via `MyAPI.openapi_doc`; `info title:, version:, description:` macro; `:param` → `{param}` path conversion; `returns status, Entity` documents typed responses with `components/schemas` `$ref`s; raised error classes and validation 422s surface automatically
 - **Scalar UI** — `docs at: "/docs"` mounts an interactive API explorer + JSON spec endpoint directly on the API router
 - **Content negotiation** — opt-in `formats :json, :xml, :msgpack`; handlers keep returning JSON and Pika transcodes to XML or MessagePack per the request's `Accept` header (or `?format=`). Both encoders are hand-rolled — still zero dependencies
+- **Streaming & SSE** — `stream do |io| … end` for chunked bodies and `sse do |s| … end` for Server-Sent Events (`s.event`/`s.json`/`s.comment`, auto-flushed); async producers compose naturally via Crystal fibers
 - **Testing** — `MyAPI.request(:post, "/users", json: {...})` drives the full middleware/handler chain in-process and returns a structured response — no socket
 - **CORS** — `cors origins: [...], credentials: true`; automatic preflight (`OPTIONS`) handling
 - **Observability** — opt-in structured access logging, per-request `X-Request-Id` generation/propagation, and an `instrument` hook for metrics/tracing
@@ -101,7 +102,7 @@ Add to your `shard.yml`:
 dependencies:
   pika:
     github: tekanic/pika
-    version: "~> 0.10"
+    version: "~> 0.11"
 ```
 
 Then run `shards install`.
@@ -550,6 +551,68 @@ Notes:
 - **Opt-in, zero-cost by default.** Without the `formats` macro there is no negotiation and no per-request overhead — the JSON path is untouched.
 - **Still zero dependencies.** The XML and MessagePack encoders are hand-rolled over the parsed JSON tree; Pika pulls in no serialization shards.
 - A non-JSON handler body (plain text) is passed through unchanged. Error responses are emitted by the error formatter (JSON / problem+json).
+
+---
+
+## Streaming & Server-Sent Events
+
+For long responses, live feeds, and progress streams, a handler can write the body incrementally instead of returning it all at once.
+
+### Chunked streaming
+
+`stream` yields the response IO. Set your content type, write, and `flush` as data is produced; the response uses chunked transfer encoding. Returning from the block sends nothing further:
+
+```crystal
+resource :export do
+  get do
+    env.response.content_type = "text/csv"
+    stream do |io|
+      io << "id,name\n"
+      User.each do |u|
+        io << "#{u.id},#{u.name}\n"
+        io.flush          # push this row to the client now
+      end
+    end
+  end
+end
+```
+
+### Server-Sent Events
+
+`sse` sets `text/event-stream` and yields a `Pika::SSE`. Each call writes one frame and flushes immediately:
+
+```crystal
+resource :notifications do
+  get do
+    sse do |stream|
+      stream.comment("connected")          # : connected
+      stream.event("hello")                 # data: hello
+      stream.json({unread: 3})              # data: {"unread":3}
+      stream.event(payload, event: "ping", id: "42", retry: 3000)
+    end
+  end
+end
+```
+
+`event` splits multi-line data into multiple `data:` lines per the SSE spec; `json` serializes an object as the data payload; `comment` emits a `:`-prefixed keep-alive.
+
+### Async producers
+
+Crystal handles each request on its own fiber, so an async producer composes naturally — spawn a fiber, push to a channel, and stream as data arrives:
+
+```crystal
+get do
+  sse do |stream|
+    channel = Channel(Event).new
+    spawn { event_source.each { |e| channel.send(e) } }
+    while event = channel.receive?
+      stream.json(event)
+    end
+  end
+end
+```
+
+> **Note:** a streaming response commits its headers on the first flush, so `after` hooks that mutate the response don't compose with streaming handlers. Set any headers before you start streaming.
 
 ---
 
@@ -1365,7 +1428,7 @@ mount V2::UsersAPI
 | v0.8 — header and Accept-header versioning | ✅ complete |
 | v0.9 — response control, typed response/error schemas, UUID/Time/Array/nested-object params, file uploads, test harness, CORS, observability, graceful shutdown | ✅ complete |
 | v0.10 — XML and MessagePack response formatters | ✅ complete |
-| v0.11 — async/streaming responses | planned |
+| v0.11 — async/streaming responses (chunked + SSE) | ✅ complete |
 | v1.0 — API freeze, docs site, launch | planned |
 
 ---

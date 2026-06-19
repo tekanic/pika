@@ -525,7 +525,7 @@
       <div>
         <div class="hero-badge">
           <span aria-hidden="true"></span>
-          Crystal shard &nbsp;·&nbsp; MIT license &nbsp;·&nbsp; v0.10
+          Crystal shard &nbsp;·&nbsp; MIT license &nbsp;·&nbsp; v0.11
         </div>
         <img src="assets/pika-wordmark.svg" alt="Pika" class="hero-wordmark">
         <h1>Grape-inspired REST APIs<br>for Crystal</h1>
@@ -540,7 +540,7 @@
             <span class="ik">dependencies</span><span class="ip">:</span><br>
             &nbsp;&nbsp;<span class="ik">pika</span><span class="ip">:</span><br>
             &nbsp;&nbsp;&nbsp;&nbsp;<span class="ik">github</span><span class="ip">:</span> <span class="iv">tekanic/pika</span><br>
-            &nbsp;&nbsp;&nbsp;&nbsp;<span class="ik">version</span><span class="ip">:</span> <span class="iv">"~&gt; 0.10"</span>
+            &nbsp;&nbsp;&nbsp;&nbsp;<span class="ik">version</span><span class="ip">:</span> <span class="iv">"~&gt; 0.11"</span>
           </div>
           <button class="copy-btn" onclick="copyInstall(this)" aria-label="Copy install snippet">Copy</button>
         </div>
@@ -606,6 +606,11 @@
         <div class="feat-icon">🔄</div>
         <h3>Content negotiation</h3>
         <p>Opt in with <code>formats :json, :xml, :msgpack</code> — handlers keep returning JSON and Pika transcodes to XML or MessagePack per the request's <code>Accept</code> header. Both encoders are hand-rolled, so it stays zero-dependency.</p>
+      </div>
+      <div class="feat">
+        <div class="feat-icon">📡</div>
+        <h3>Streaming &amp; SSE</h3>
+        <p>Stream chunked bodies with <code>stream do |io| … end</code> or push Server-Sent Events with <code>sse do |s| … end</code> — auto-flushed per frame. Async producers compose naturally via Crystal fibers.</p>
       </div>
     </div>
   </div>
@@ -989,7 +994,7 @@ MyAPI.run  # → 0.0.0.0:3000</code></pre>
         <span class="ik">dependencies</span><span class="ip">:</span><br>
         &nbsp;&nbsp;<span class="ik">pika</span><span class="ip">:</span><br>
         &nbsp;&nbsp;&nbsp;&nbsp;<span class="ik">github</span><span class="ip">:</span> <span class="iv">tekanic/pika</span><br>
-        &nbsp;&nbsp;&nbsp;&nbsp;<span class="ik">version</span><span class="ip">:</span> <span class="iv">"~&gt; 0.10"</span>
+        &nbsp;&nbsp;&nbsp;&nbsp;<span class="ik">version</span><span class="ip">:</span> <span class="iv">"~&gt; 0.11"</span>
       </div>
     </div>
 
@@ -1030,7 +1035,7 @@ MyAPI.run  # → 0.0.0.0:3000</code></pre>
   hljs.highlightAll();
 
   function copyInstall(btn) {
-    const text = 'dependencies:\n  pika:\n    github: tekanic/pika\n    version: "~> 0.10"';
+    const text = 'dependencies:\n  pika:\n    github: tekanic/pika\n    version: "~> 0.11"';
     navigator.clipboard.writeText(text).then(() => {
       const orig = btn.textContent;
       btn.textContent = 'Copied!';

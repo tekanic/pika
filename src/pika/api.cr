@@ -94,6 +94,46 @@ module Pika
     end
 
     # ---------------------------------------------------------------------------
+    # stream — write the response body incrementally (chunked). Yields the
+    # response IO; flush as you produce data. Returns nil so the router does not
+    # re-emit a body. Set your own content_type before streaming.
+    #
+    #   get do
+    #     env.response.content_type = "text/plain"
+    #     stream do |io|
+    #       10.times { |i| io << "line #{i}\n"; io.flush }
+    #     end
+    #   end
+    # ---------------------------------------------------------------------------
+    macro stream(&block)
+      {% if block.args.size > 0 %}{{ block.args[0].id }} = env.response{% end %}
+      {{ block.body }}
+      env.response.flush
+      nil
+    end
+
+    # ---------------------------------------------------------------------------
+    # sse — stream Server-Sent Events. Sets text/event-stream and yields a
+    # Pika::SSE; each event/json/comment call writes one frame and flushes.
+    # Returns nil. Async producers work naturally — spawn a fiber and push to
+    # the stream as data arrives.
+    #
+    #   get do
+    #     sse do |stream|
+    #       feed.each { |msg| stream.json(msg) }
+    #     end
+    #   end
+    # ---------------------------------------------------------------------------
+    macro sse(&block)
+      env.response.content_type = "text/event-stream"
+      env.response.headers["Cache-Control"] = "no-cache"
+      env.response.headers["X-Accel-Buffering"] = "no"
+      {% if block.args.size > 0 %}{{ block.args[0].id }} = Pika::SSE.new(env.response){% end %}
+      {{ block.body }}
+      nil
+    end
+
+    # ---------------------------------------------------------------------------
     # version — declare the API version and how clients communicate it.
     #
     #   version "v1"                                  # path prefix (default)
