@@ -100,7 +100,7 @@ Add to your `shard.yml`:
 dependencies:
   pika:
     github: tekanic/pika
-    version: "~> 0.1"
+    version: "~> 0.9"
 ```
 
 Then run `shards install`.
