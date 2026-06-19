@@ -1,9 +1,9 @@
-# Pika v0.6 Benchmark Results
+# Pika v0.9 Benchmark Results
 
-**Hardware:** Apple M-series (arm64)  
+**Hardware:** Apple M2 (arm64)  
 **Tool:** `bombardier -c 128 -d 15s`  
 **Crystal:** 1.20.1  
-**Date:** 2026-05-05
+**Date:** 2026-06-19
 
 ---
 
@@ -23,35 +23,35 @@
 
 | Endpoint | req/s (avg) | Latency (avg) | Latency (stddev) |
 |---|---|---|---|
-| Static | 155,719 | 823 µs | 540 µs |
-| JSON | 142,126 | 900 µs | 614 µs |
-| Validated params | 123,121 | 1.04 ms | 795 µs |
+| Static | 154,931 | 826 µs | 318 µs |
+| JSON | 149,334 | 860 µs | 161 µs |
+| Validated params | 139,052 | 920 µs | 272 µs |
 
 ### Multi-threaded (`--release -Dpreview_mt`, CRYSTAL_WORKERS=4)
 
 | Endpoint | req/s (avg) | Latency (avg) | Latency (stddev) |
 |---|---|---|---|
-| Static | 190,098 | 672 µs | 265 µs |
-| JSON | 166,117 | 769 µs | 153 µs |
-| Validated params | 145,715 | 880 µs | 253 µs |
+| Static | 194,084 | 658 µs | 345 µs |
+| JSON | 177,238 | 721 µs | 289 µs |
+| Validated params | 149,454 | 860 µs | 413 µs |
 
 ### 4× processes with `reuse_port: true` (`--release`)
 
 | Endpoint | req/s (avg) | Latency (avg) | Latency (stddev) |
 |---|---|---|---|
-| Static | 153,300 | 834 µs | 226 µs |
-| JSON | 145,029 | 880 µs | 57 µs |
-| Validated params | 135,396 | 940 µs | 88 µs |
+| Static | 152,421 | 838 µs | 294 µs |
+| JSON | 152,014 | 841 µs | 266 µs |
+| Validated params | 134,929 | 950 µs | 134 µs |
 
 ---
 
 ## Key observations
 
-- **`--threads 4` is the clear winner** on this hardware: +22% static, +17% JSON, +18% validated vs single-threaded. Latency stddev halves.
+- **`--threads 4` is the clear winner** on this hardware: +25% static, +19% JSON, +7% validated vs single-threaded.
 - **4× `reuse_port` is roughly flat vs single-threaded** on loopback. The kernel SO_REUSEPORT load balancer shows its advantage in network-bound deployments, not loopback microbenchmarks.
-- **Param validation overhead:** ~21% throughput cost vs JSON (single-threaded). Shrinks to ~12% under `--threads 4`, suggesting the struct-generation and parse work distributes well.
-- **Zero non-2xx responses** across all runs (1.8–2.9M requests each). No correctness regressions.
-- Numbers are consistent with the PoC 3 baseline (161k/148k/123k req/s) — the full DSL stack adds no measurable overhead over raw routing.
+- **Param validation overhead:** ~7% throughput cost vs JSON (single-threaded) — the typed-struct generation and parse work is cheap.
+- **Zero non-2xx responses** across all runs (2.0–2.9M requests each). No correctness regressions.
+- **No regression from the v0.9 production-hardening work.** Despite the response lifecycle now carrying an in-flight request counter (for graceful shutdown) and nil-gated CORS/observability checks on every request, throughput is unchanged-to-better versus the v0.6 baseline (e.g. single-threaded validated rose from 123k to 139k req/s, well within run-to-run variance). The observability clock read and CORS/header work only execute when those features are enabled.
 
 ---
 

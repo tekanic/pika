@@ -506,6 +506,7 @@
       </a>
       <div class="nav-links">
         <a href="#features">Features</a>
+        <a href="#whats-new">What's new</a>
         <a href="#ecosystem">Ecosystem</a>
         <a href="https://github.com/tekanic/pika/blob/main/README.md">Docs</a>
         <a href="https://github.com/tekanic/pika" class="btn-gh">
@@ -524,7 +525,7 @@
       <div>
         <div class="hero-badge">
           <span aria-hidden="true"></span>
-          Crystal shard &nbsp;·&nbsp; MIT license &nbsp;·&nbsp; v0.1
+          Crystal shard &nbsp;·&nbsp; MIT license &nbsp;·&nbsp; v0.9
         </div>
         <img src="assets/pika-wordmark.svg" alt="Pika" class="hero-wordmark">
         <h1>Grape-inspired REST APIs<br>for Crystal</h1>
@@ -539,7 +540,7 @@
             <span class="ik">dependencies</span><span class="ip">:</span><br>
             &nbsp;&nbsp;<span class="ik">pika</span><span class="ip">:</span><br>
             &nbsp;&nbsp;&nbsp;&nbsp;<span class="ik">github</span><span class="ip">:</span> <span class="iv">tekanic/pika</span><br>
-            &nbsp;&nbsp;&nbsp;&nbsp;<span class="ik">version</span><span class="ip">:</span> <span class="iv">"~&gt; 0.1"</span>
+            &nbsp;&nbsp;&nbsp;&nbsp;<span class="ik">version</span><span class="ip">:</span> <span class="iv">"~&gt; 0.9"</span>
           </div>
           <button class="copy-btn" onclick="copyInstall(this)" aria-label="Copy install snippet">Copy</button>
         </div>
@@ -579,12 +580,12 @@
       <div class="feat">
         <div class="feat-icon">🔒</div>
         <h3>Compile-time params</h3>
-        <p>Param blocks generate typed structs — <code>declared_params.name</code> is a <code>String</code>, guaranteed. Misspell a field or pass the wrong type and the compiler tells you before your tests run, not after a 3am page.</p>
+        <p>Param blocks generate typed structs — <code>declared_params.name</code> is a <code>String</code>, guaranteed. Coerces <code>UUID</code>, <code>Time</code>, <code>Array(T)</code> and nested <code>Pika.object</code> structs; misspell a field and the compiler tells you before a 3am page.</p>
       </div>
       <div class="feat">
         <div class="feat-icon">📄</div>
         <h3>OpenAPI 3.1 built-in</h3>
-        <p>Full spec generated from your DSL — no annotation layers. <code>MyAPI.openapi_doc</code> returns a valid, complete JSON document.</p>
+        <p>Full spec generated from your DSL — no annotation layers. <code>returns 201, UserEntity</code> documents typed responses with real <code>$ref</code> schemas; validation and raised errors surface automatically.</p>
       </div>
       <div class="feat">
         <div class="feat-icon">🔭</div>
@@ -600,6 +601,48 @@
         <div class="feat-icon">🚀</div>
         <h3>Go-beating throughput</h3>
         <p>144k req/s single-threaded — 50% faster than Go's chi router (matched GOMAXPROCS=1), 12× faster than Grape. Pika owns its router on Crystal's stdlib <code>HTTP::Server</code> with no external HTTP dependency.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── NEW IN v0.9 ── -->
+<section class="features-section" id="whats-new" style="border-top:1px solid var(--border)">
+  <div class="container">
+    <p class="section-eyebrow">New in v0.9</p>
+    <h2 class="section-title">Production-hardened, end to end</h2>
+    <p class="section-sub">v0.9 makes the response half of the request lifecycle first-class and adds the operational features a team needs before shipping a REST API to production.</p>
+
+    <div class="features-grid">
+      <div class="feat">
+        <div class="feat-icon">📤</div>
+        <h3>Response control</h3>
+        <p>Set the status and headers from any handler — <code>status 201</code>, <code>header "Location", ...</code>. Sensible verb defaults: an empty <code>delete</code> becomes <code>204 No Content</code>.</p>
+      </div>
+      <div class="feat">
+        <div class="feat-icon">🧪</div>
+        <h3>In-process testing</h3>
+        <p><code>MyAPI.request(:post, "/users", json: {...})</code> drives the full middleware/handler chain and returns a structured response — no socket, no port. Assertions stay fast.</p>
+      </div>
+      <div class="feat">
+        <div class="feat-icon">📎</div>
+        <h3>File uploads</h3>
+        <p>JSON, <code>x-www-form-urlencoded</code>, and <code>multipart/form-data</code> all decode into the same typed <code>declared_params</code>. Declare a field as <code>Pika::UploadedFile</code> and you're done.</p>
+      </div>
+      <div class="feat">
+        <div class="feat-icon">🌐</div>
+        <h3>CORS</h3>
+        <p>One <code>cors</code> macro — origin allow-list (or wildcard), methods, headers, credentials. Preflight <code>OPTIONS</code> requests are answered automatically by the router.</p>
+      </div>
+      <div class="feat">
+        <div class="feat-icon">📊</div>
+        <h3>Observability</h3>
+        <p>Opt-in structured access logging, a per-request <code>X-Request-Id</code> generated and propagated, and an <code>instrument</code> hook for metrics and tracing.</p>
+      </div>
+      <div class="feat">
+        <div class="feat-icon">🛑</div>
+        <h3>Graceful shutdown</h3>
+        <p>On <code>SIGTERM</code>/<code>SIGINT</code> the server stops accepting connections, drains in-flight requests within a configurable timeout, then closes — safe to roll under Kubernetes or ECS.</p>
       </div>
     </div>
   </div>
@@ -982,7 +1025,7 @@ MyAPI.run  # → 0.0.0.0:3000</code></pre>
   hljs.highlightAll();
 
   function copyInstall(btn) {
-    const text = 'dependencies:\n  pika:\n    github: tekanic/pika\n    version: "~> 0.1"';
+    const text = 'dependencies:\n  pika:\n    github: tekanic/pika\n    version: "~> 0.9"';
     navigator.clipboard.writeText(text).then(() => {
       const orig = btn.textContent;
       btn.textContent = 'Copied!';
