@@ -1,6 +1,7 @@
 require "./pika/version"
 require "./pika/error"
 require "./pika/upload"
+require "./pika/object"
 require "./pika/router"
 require "./pika/params"
 require "./pika/openapi"

@@ -39,7 +39,7 @@ MyAPI.run  # 0.0.0.0:3000
 ## Features
 
 - **Routing** — `resource`, `namespace`, `route_param`, `version`, `mount`; hand-rolled router on Crystal's stdlib `HTTP::Server`, zero external dependencies
-- **Params** — `requires`/`optional` with type coercion (`String`, `Int32`, `Int64`, `Float64`, `Bool`, `UUID`, `Time`, `Array(T)`, nilable variants); `regexp`, `values`, `length` constraints; `mutually_exclusive`, `at_least_one_of`, `exactly_one_of`; `params_from ModelClass` to derive params from a Clear model column schema
+- **Params** — `requires`/`optional` with type coercion (`String`, `Int32`, `Int64`, `Float64`, `Bool`, `UUID`, `Time`, `Array(T)`, `Pika.object` nested structs, nilable variants); `regexp`, `values`, `length` constraints; `mutually_exclusive`, `at_least_one_of`, `exactly_one_of`; `params_from ModelClass` to derive params from a Clear model column schema
 - **Request bodies** — JSON, `application/x-www-form-urlencoded`, and `multipart/form-data` (file uploads via `Pika::UploadedFile`) all decode into the same typed `declared_params`
 - **Response control** — set the status and headers from any handler with `status 201` / `header "Location", ...`; sensible verb defaults (empty `delete` → `204 No Content`)
 - **Hooks** — `before`/`after` blocks scoped per resource/namespace; errors raised in hooks are caught and formatted
@@ -243,7 +243,8 @@ end
 | `Bool` | `"true"`/`"1"` → true, `"false"`/`"0"` → false | `boolean` |
 | `UUID` | parsed; malformed → 422 | `string`, `format: uuid` |
 | `Time` | RFC 3339 parsed; malformed → 422 | `string`, `format: date-time` |
-| `Array(T)` | JSON array, coerced element-wise (`T` ∈ scalar types) | `array` |
+| `Array(T)` | JSON array, coerced element-wise (`T` ∈ scalar or `Pika.object` types) | `array` (+ `items` `$ref` for objects) |
+| `Pika.object` struct | JSON object, structurally validated (see [Nested objects](#nested-objects)) | `$ref` to `components/schemas` |
 | `Pika::UploadedFile` | from `multipart/form-data` (see [File uploads](#file-uploads)) | `string`, `format: binary` |
 
 Any of these may be nilable (`Int32?`, `UUID?`, …). A nilable optional param that is absent becomes `nil`.
@@ -257,9 +258,7 @@ params do
 end
 ```
 
-Array and nested-object payloads are read from the JSON request body. Malformed values for any typed param produce a `422` with a per-field message before your handler runs.
-
-> **Note:** nested-object params (`requires items : Array(SomeStruct)`) are not yet supported — model nested data by reading `declared_params` arrays of scalars or parsing `env.request.body` directly. Tracked for a future release.
+Array and nested-object payloads are read from the JSON request body. Malformed values for any typed param produce a `422` with a per-field message before your handler runs. For nested objects, see [Nested objects](#nested-objects).
 
 ### Deriving params from a Clear model
 
@@ -339,6 +338,46 @@ resource :forms do
   post { {name: declared_params.name, count: declared_params.count}.to_json }
 end
 ```
+
+---
+
+## Nested objects
+
+Model nested request bodies with `Pika.object` — it defines a struct that Pika can both coerce from the body and emit into the OpenAPI spec. Use the type as a param directly, or wrap it in `Array(T)` for collections:
+
+```crystal
+Pika.object Address do
+  field street : String
+  field city   : String
+  field zip    : String?      # nilable field — optional in the payload
+end
+
+Pika.object LineItem do
+  field sku : String
+  field qty : Int32
+end
+
+class OrdersAPI < Pika::API
+  resource :orders do
+    params do
+      requires customer : String
+      requires address  : Address           # nested object
+      requires items    : Array(LineItem)   # array of nested objects
+      optional billing  : Address?
+    end
+    post do
+      declared_params.address.street      # String — typed
+      declared_params.items.first.sku     # String — typed
+      status 201
+      {ok: true}.to_json
+    end
+  end
+end
+```
+
+Nested values are validated structurally: a missing required field (or a wrong type) inside `address` or any `items` element produces a `422` before your handler runs. In OpenAPI, each `Pika.object` becomes a schema in `components/schemas`, and the request body references it — `address` as a `$ref`, `items` as `{ type: array, items: { $ref } }`.
+
+`field` declarations are scalars (`String`, `Int32`/`Int64`, `Float64`, `Bool`, and nilable variants); compose multiple `Pika.object` types for deeper structures. Nested objects are read from the JSON body.
 
 ---
 
@@ -1285,10 +1324,9 @@ mount V2::UsersAPI
 | v0.6 — benchmarks, `reuse_port`, `params_from` | ✅ complete |
 | v0.7 — authentication strategies (`pika-auth` shard) | ✅ complete |
 | v0.8 — header and Accept-header versioning | ✅ complete |
-| v0.9 — response control, typed response/error schemas, UUID/Time/Array params, file uploads, test harness, CORS, observability, graceful shutdown | ✅ complete |
+| v0.9 — response control, typed response/error schemas, UUID/Time/Array/nested-object params, file uploads, test harness, CORS, observability, graceful shutdown | ✅ complete |
 | v0.10 — XML and MessagePack response formatters | planned |
 | v0.11 — async/streaming responses | planned |
-| v0.12 — nested-object params | planned |
 | v1.0 — API freeze, docs site, launch | planned |
 
 ---
