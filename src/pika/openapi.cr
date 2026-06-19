@@ -9,8 +9,8 @@ module Pika
       schema_type : String
 
     record RequestBodySpec,
-      required_fields : Array({name: String, schema_type: String, format: String}),
-      optional_fields : Array({name: String, schema_type: String, format: String})
+      required_fields : Array({name: String, schema_type: String, format: String, ref: String, items_ref: String}),
+      optional_fields : Array({name: String, schema_type: String, format: String, ref: String, items_ref: String})
 
     # A documented response: a status code, a human description, and an optional
     # reference to a schema in components/schemas (the bare schema name, no $ref
@@ -131,8 +131,19 @@ module Pika
           required_names = body.required_fields.map(&.[:name])
           props = {} of String => JSON::Any
           all_fields.each do |f|
-            prop = {"type" => JSON::Any.new(f[:schema_type])} of String => JSON::Any
-            prop["format"] = JSON::Any.new(f[:format]) unless f[:format].empty?
+            prop =
+              if !f[:ref].empty?
+                {"$ref" => JSON::Any.new("#/components/schemas/#{f[:ref]}")} of String => JSON::Any
+              elsif !f[:items_ref].empty?
+                {
+                  "type"  => JSON::Any.new("array"),
+                  "items" => JSON::Any.new({"$ref" => JSON::Any.new("#/components/schemas/#{f[:items_ref]}")} of String => JSON::Any),
+                } of String => JSON::Any
+              else
+                h = {"type" => JSON::Any.new(f[:schema_type])} of String => JSON::Any
+                h["format"] = JSON::Any.new(f[:format]) unless f[:format].empty?
+                h
+              end
             props[f[:name]] = JSON::Any.new(prop)
           end
           # A binary field means the body is multipart, not JSON.

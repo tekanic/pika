@@ -552,24 +552,35 @@ module Pika
 
             {% elsif ts.starts_with?("Array") %}
               # Array params arrive as a JSON array (typically in a JSON body).
-              _val_{{ p[:name] }} : {{ p[:type] }} = {% if nilable %}nil{% else %}{{ p[:type] }}.new{% end %}
+              {% scalar_elem = ts.includes?("String") || ts.includes?("Int32") || ts.includes?("Int64") || ts.includes?("Float64") || ts.includes?("Bool") %}
+              {% arr_base = ts.gsub(/ \| (?:::)?Nil/, "").strip %}
+              _val_{{ p[:name] }} : {{ p[:type] }} = {% if nilable %}nil{% else %}{{ arr_base.id }}.new{% end %}
               if _v = _raw_{{ p[:name] }}
-                begin
-                  _arr_{{ p[:name] }} = JSON.parse(_v).as_a?
-                  if _arr_{{ p[:name] }}
-                    _val_{{ p[:name] }} = _arr_{{ p[:name] }}.map do |_e|
-                      {% if ts.includes?("Int64") %} _e.as_i64
-                      {% elsif ts.includes?("Int32") %} _e.as_i
-                      {% elsif ts.includes?("Float64") %} _e.as_f
-                      {% elsif ts.includes?("Bool") %} _e.as_bool
-                      {% else %} _e.as_s {% end %}
+                {% if scalar_elem %}
+                  begin
+                    _arr_{{ p[:name] }} = JSON.parse(_v).as_a?
+                    if _arr_{{ p[:name] }}
+                      _val_{{ p[:name] }} = _arr_{{ p[:name] }}.map do |_e|
+                        {% if ts.includes?("Int64") %} _e.as_i64
+                        {% elsif ts.includes?("Int32") %} _e.as_i
+                        {% elsif ts.includes?("Float64") %} _e.as_f
+                        {% elsif ts.includes?("Bool") %} _e.as_bool
+                        {% else %} _e.as_s {% end %}
+                      end
+                    else
+                      _errors << {field: {{ p[:name].stringify }}, message: "must be an array"}
                     end
-                  else
-                    _errors << {field: {{ p[:name].stringify }}, message: "must be an array"}
+                  rescue
+                    _errors << {field: {{ p[:name].stringify }}, message: "must be an array of the correct element type"}
                   end
-                rescue
-                  _errors << {field: {{ p[:name].stringify }}, message: "must be an array of the correct element type"}
-                end
+                {% else %}
+                  # Array of nested objects — deserialize the whole array via JSON.
+                  begin
+                    _val_{{ p[:name] }} = {{ arr_base.id }}.from_json(_v)
+                  rescue
+                    _errors << {field: {{ p[:name].stringify }}, message: "must be an array of valid objects"}
+                  end
+                {% end %}
               else
                 {% unless p[:opt] %}
                   _errors << {field: {{ p[:name].stringify }}, message: "is required"}
@@ -689,6 +700,24 @@ module Pika
                   _errors << {field: {{ p[:name].stringify }}, message: "is required"}
                 {% end %}
               end
+
+            {% else %}
+              # Nested object param — JSON-deserialized (e.g. a Pika.object type).
+              # Held in a nilable temp; the struct receives `.not_nil!` when the
+              # field itself is non-nilable (we raise before constructing if absent).
+              {% obj_base = ts.gsub(/ \| (?:::)?Nil/, "").strip %}
+              _val_{{ p[:name] }} = nil.as({{ obj_base.id }}?)
+              if _v = _raw_{{ p[:name] }}
+                begin
+                  _val_{{ p[:name] }} = {{ obj_base.id }}.from_json(_v)
+                rescue
+                  _errors << {field: {{ p[:name].stringify }}, message: "must be a valid object"}
+                end
+              else
+                {% unless p[:opt] %}
+                  _errors << {field: {{ p[:name].stringify }}, message: "is required"}
+                {% end %}
+              end
             {% end %}
           {% end %}
 
@@ -709,7 +738,12 @@ module Pika
           raise Pika::ValidationError.new(_errors) unless _errors.empty?
           {{ sn.id }}.new(
             {% unless r[:rp_name].empty? %}{{ r[:rp_name].id }}: raw[{{ r[:rp_name] }}]? || "",{% end %}
-            {% for p in r[:body_params] %}{{ p[:name] }}: _val_{{ p[:name] }},{% end %}
+            {% for p in r[:body_params] %}
+              {% cpt = p[:type].stringify %}
+              {% c_scalarish = cpt.includes?("String") || cpt.includes?("Int32") || cpt.includes?("Int64") || cpt.includes?("Float64") || cpt.includes?("Bool") || cpt.includes?("UUID") || cpt.includes?("Time") || cpt.includes?("UploadedFile") %}
+              {% plain_obj_nonnil = !c_scalarish && !cpt.starts_with?("Array") && !cpt.includes?("Nil") %}
+              {{ p[:name] }}: _val_{{ p[:name] }}{% if plain_obj_nonnil %}.not_nil!{% end %},
+            {% end %}
           )
         end
 
@@ -768,6 +802,21 @@ module Pika
           @@openapi_schemas["PikaError"] = Pika::OpenAPI.error_schema
         {% end %}
 
+        # Register schemas for any nested-object params (plain or array-of).
+        {% for p in r[:body_params] %}
+          {% spt = p[:type].stringify %}
+          {% s_base = spt.gsub(/ \| (?:::)?Nil/, "").strip %}
+          {% s_scalarish = spt.includes?("String") || spt.includes?("Int32") || spt.includes?("Int64") || spt.includes?("Float64") || spt.includes?("Bool") || spt.includes?("UUID") || spt.includes?("Time") || spt.includes?("UploadedFile") %}
+          {% unless s_scalarish %}
+            {% if s_base.starts_with?("Array(") %}
+              {% s_elem = s_base[6..-2] %}
+              @@openapi_schemas[{{ s_elem.id }}.pika_schema_name] = {{ s_elem.id }}.pika_openapi_schema
+            {% else %}
+              @@openapi_schemas[{{ s_base.id }}.pika_schema_name] = {{ s_base.id }}.pika_openapi_schema
+            {% end %}
+          {% end %}
+        {% end %}
+
         @@openapi_routes << Pika::OpenAPI::RouteSpec.new(
           method:  {{ r[:verb] }},
           path:    _pika_path,
@@ -814,8 +863,28 @@ module Pika
           ] of Pika::OpenAPI::ParameterSpec,
           {% if has_body %}
             request_body: Pika::OpenAPI::RequestBodySpec.new(
-              required_fields: [{% for p in r[:body_params] %}{% if p[:required] %}{% pt = p[:type].stringify %}{name: {{ p[:name].stringify }}, schema_type: {{ p[:oa_type] }}, format: {{ pt.includes?("UploadedFile") ? "binary" : (pt.includes?("UUID") ? "uuid" : (pt.includes?("Time") ? "date-time" : "")) }}},{% end %}{% end %}] of {name: String, schema_type: String, format: String},
-              optional_fields: [{% for p in r[:body_params] %}{% unless p[:required] %}{% pt = p[:type].stringify %}{name: {{ p[:name].stringify }}, schema_type: {{ p[:oa_type] }}, format: {{ pt.includes?("UploadedFile") ? "binary" : (pt.includes?("UUID") ? "uuid" : (pt.includes?("Time") ? "date-time" : "")) }}},{% end %}{% end %}] of {name: String, schema_type: String, format: String},
+              required_fields: [
+                {% for p in r[:body_params] %}{% if p[:required] %}
+                  {% pt = p[:type].stringify %}{% base = pt.gsub(/ \| (?:::)?Nil/, "").strip %}
+                  {% scalarish = pt.includes?("String") || pt.includes?("Int32") || pt.includes?("Int64") || pt.includes?("Float64") || pt.includes?("Bool") || pt.includes?("UUID") || pt.includes?("Time") || pt.includes?("UploadedFile") %}
+                  {% is_arr = base.starts_with?("Array(") %}
+                  {% fmt = pt.includes?("UploadedFile") ? "binary" : (pt.includes?("UUID") ? "uuid" : (pt.includes?("Time") ? "date-time" : "")) %}
+                  {name: {{ p[:name].stringify }}, schema_type: {{ p[:oa_type] }}, format: {{ fmt }},
+                   ref: {% if !is_arr && !scalarish %}{{ base.id }}.pika_schema_name{% else %}""{% end %},
+                   items_ref: {% if is_arr && !scalarish %}{{ base[6..-2].id }}.pika_schema_name{% else %}""{% end %}},
+                {% end %}{% end %}
+              ] of {name: String, schema_type: String, format: String, ref: String, items_ref: String},
+              optional_fields: [
+                {% for p in r[:body_params] %}{% unless p[:required] %}
+                  {% pt = p[:type].stringify %}{% base = pt.gsub(/ \| (?:::)?Nil/, "").strip %}
+                  {% scalarish = pt.includes?("String") || pt.includes?("Int32") || pt.includes?("Int64") || pt.includes?("Float64") || pt.includes?("Bool") || pt.includes?("UUID") || pt.includes?("Time") || pt.includes?("UploadedFile") %}
+                  {% is_arr = base.starts_with?("Array(") %}
+                  {% fmt = pt.includes?("UploadedFile") ? "binary" : (pt.includes?("UUID") ? "uuid" : (pt.includes?("Time") ? "date-time" : "")) %}
+                  {name: {{ p[:name].stringify }}, schema_type: {{ p[:oa_type] }}, format: {{ fmt }},
+                   ref: {% if !is_arr && !scalarish %}{{ base.id }}.pika_schema_name{% else %}""{% end %},
+                   items_ref: {% if is_arr && !scalarish %}{{ base[6..-2].id }}.pika_schema_name{% else %}""{% end %}},
+                {% end %}{% end %}
+              ] of {name: String, schema_type: String, format: String, ref: String, items_ref: String},
             ),
           {% else %}
             request_body: nil,
