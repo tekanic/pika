@@ -88,6 +88,26 @@ module Pika
         end
       end
 
+      # The schema name used to $ref this entity from an OpenAPI responses object.
+      # Namespaced classes collapse to their last segment (Api::UserEntity → UserEntity).
+      def self.pika_schema_name : String
+        {{ @type.name.stringify.split("::").last }}
+      end
+
+      # An OpenAPI object schema derived from the exposed keys. Field value types
+      # are not statically known (exposures can be computed), so each property is
+      # emitted as an unconstrained schema — the key set is what clients rely on.
+      def self.pika_openapi_schema : JSON::Any
+        _props = {} of String => JSON::Any
+        {% for e in expose_list %}
+          _props[{{ e[:key] }}] = JSON::Any.new({} of String => JSON::Any)
+        {% end %}
+        JSON::Any.new({
+          "type"       => JSON::Any.new("object"),
+          "properties" => JSON::Any.new(_props),
+        } of String => JSON::Any)
+      end
+
       # Generate represent(collection) class method
       def self.represent(collection : Enumerable(T), **opts) : String
         String.build do |_io|
