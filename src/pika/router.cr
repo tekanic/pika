@@ -122,7 +122,8 @@ module Pika
         return
       end
 
-      started = Time.instant
+      # Only read the clock when something will consume the timing.
+      started = obs ? Time.instant : nil
       @inflight.add(1)
       begin
         dispatch(ctx)
@@ -130,10 +131,10 @@ module Pika
         @inflight.sub(1)
       end
 
-      if obs
+      if obs && (t = started)
         obs.record(Pika::RequestInfo.new(
           ctx.request.method, ctx.request.path, ctx.response.status_code,
-          Time.instant - started, request_id,
+          Time.instant - t, request_id,
         ))
       end
     end

@@ -4,3 +4,5 @@
 *.dwarf
 /bench/server
 /bench/server_mt
+/bench/server_bench
+/bench/go-compare/server_go

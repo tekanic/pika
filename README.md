@@ -1169,15 +1169,15 @@ If in-flight requests do not finish within `shutdown_timeout`, the server forces
 
 ## Performance
 
-Measured with `bombardier -c 128 -d 15s` on Apple M-series. No external HTTP dependency — Pika owns its router.
+Measured with `bombardier -c 128 -d 15s` on Apple M2. No external HTTP dependency — Pika owns its router.
 
 | Mode | Static route | JSON response | Validated params |
 |---|---|---|---|
-| Single-threaded (`--release`) | 155,719 req/s | 142,126 req/s | 123,121 req/s |
-| `--threads 4` (`preview_mt`) | 190,098 req/s | 166,117 req/s | 145,715 req/s |
-| 4× processes (`reuse_port`) | 153,300 req/s | 145,029 req/s | 135,396 req/s |
+| Single-threaded (`--release`) | 154,931 req/s | 149,334 req/s | 139,052 req/s |
+| `--threads 4` (`preview_mt`) | 194,084 req/s | 177,238 req/s | 149,454 req/s |
+| 4× processes (`reuse_port`) | 152,421 req/s | 152,014 req/s | 134,929 req/s |
 
-Full numbers and methodology: [`bench/results.md`](bench/results.md).
+Full numbers and methodology: [`bench/results.md`](bench/results.md). The v0.9 production-hardening work (in-flight request tracking, nil-gated CORS/observability) added no measurable per-request overhead versus the v0.6 baseline.
 
 ---
 
