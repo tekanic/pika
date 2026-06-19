@@ -48,6 +48,7 @@ MyAPI.run  # 0.0.0.0:3000
 - **Errors** — `Pika::Error` hierarchy with pluggable formatters: `error_formatter :rfc7807` (default), `:grape`, `:jsonapi`
 - **OpenAPI 3.1** — full spec via `MyAPI.openapi_doc`; `info title:, version:, description:` macro; `:param` → `{param}` path conversion; `returns status, Entity` documents typed responses with `components/schemas` `$ref`s; raised error classes and validation 422s surface automatically
 - **Scalar UI** — `docs at: "/docs"` mounts an interactive API explorer + JSON spec endpoint directly on the API router
+- **Content negotiation** — opt-in `formats :json, :xml, :msgpack`; handlers keep returning JSON and Pika transcodes to XML or MessagePack per the request's `Accept` header (or `?format=`). Both encoders are hand-rolled — still zero dependencies
 - **Testing** — `MyAPI.request(:post, "/users", json: {...})` drives the full middleware/handler chain in-process and returns a structured response — no socket
 - **CORS** — `cors origins: [...], credentials: true`; automatic preflight (`OPTIONS`) handling
 - **Observability** — opt-in structured access logging, per-request `X-Request-Id` generation/propagation, and an `instrument` hook for metrics/tracing
@@ -100,7 +101,7 @@ Add to your `shard.yml`:
 dependencies:
   pika:
     github: tekanic/pika
-    version: "~> 0.9"
+    version: "~> 0.10"
 ```
 
 Then run `shards install`.
@@ -510,6 +511,45 @@ class MyAPI < Pika::API
   error_formatter :jsonapi   # or :grape, :rfc7807 (default)
 end
 ```
+
+---
+
+## Response formats (content negotiation)
+
+Pika is JSON-first, but a single macro opts an API into **XML** and **MessagePack** as well. Handlers keep returning JSON exactly as before — Pika transcodes the response to the format the client asks for, so there's nothing to change in your handler code:
+
+```crystal
+class MyAPI < Pika::API
+  formats :json, :xml, :msgpack   # JSON is always available
+
+  resource :widgets do
+    get do
+      {id: 1, name: "gadget", tags: ["a", "b"]}.to_json
+    end
+  end
+end
+```
+
+The format is chosen per request:
+
+| Request | Response |
+|---|---|
+| (default) | `application/json` |
+| `Accept: application/xml` | `application/xml` |
+| `Accept: application/x-msgpack` | `application/x-msgpack` (binary) |
+| `?format=json\|xml\|msgpack` | overrides the `Accept` header |
+
+```sh
+curl  https://api.example.com/widgets                          # → JSON
+curl -H "Accept: application/xml"        …/widgets             # → <response><id>1</id>…</response>
+curl -H "Accept: application/x-msgpack"  …/widgets             # → MessagePack bytes
+```
+
+Notes:
+
+- **Opt-in, zero-cost by default.** Without the `formats` macro there is no negotiation and no per-request overhead — the JSON path is untouched.
+- **Still zero dependencies.** The XML and MessagePack encoders are hand-rolled over the parsed JSON tree; Pika pulls in no serialization shards.
+- A non-JSON handler body (plain text) is passed through unchanged. Error responses are emitted by the error formatter (JSON / problem+json).
 
 ---
 
@@ -1305,7 +1345,6 @@ mount V2::UsersAPI
 
 ### What Pika does not have (yet)
 
-- **XML/MessagePack formatters** — JSON only; planned for v0.9.
 - **`use` middleware** — compose at the `HTTP::Server` level instead; Pika exposes a standard `HTTP::Handler`.
 - **Built-in ORM integration** — use `pika-clear` for Clear, or write a before hook for any other ORM.
 
@@ -1325,7 +1364,7 @@ mount V2::UsersAPI
 | v0.7 — authentication strategies (`pika-auth` shard) | ✅ complete |
 | v0.8 — header and Accept-header versioning | ✅ complete |
 | v0.9 — response control, typed response/error schemas, UUID/Time/Array/nested-object params, file uploads, test harness, CORS, observability, graceful shutdown | ✅ complete |
-| v0.10 — XML and MessagePack response formatters | planned |
+| v0.10 — XML and MessagePack response formatters | ✅ complete |
 | v0.11 — async/streaming responses | planned |
 | v1.0 — API freeze, docs site, launch | planned |
 

@@ -29,6 +29,10 @@ module Pika
     @@_pika_before_hooks = [] of Proc(HTTP::Server::Context, Nil)
     @@_pika_after_hooks  = [] of Proc(HTTP::Server::Context, Nil)
 
+    # Response formats enabled for content negotiation. Empty = JSON only (no
+    # negotiation, zero per-request overhead).
+    @@_pika_formats = [] of Symbol
+
     # Pluggable error formatters — default to RFC 7807.
     @@_pika_fmt_validation : Proc(HTTP::Server::Context, Pika::ValidationError, String) =
       ->(env : HTTP::Server::Context, e : Pika::ValidationError) {
@@ -141,6 +145,18 @@ module Pika
         _pika_env.response.content_type = "application/json"
         {{ @type }}.openapi_doc
       end
+    end
+
+    # ---------------------------------------------------------------------------
+    # formats — enable response content negotiation. Handlers keep returning
+    # JSON; Pika transcodes to XML/MessagePack per the request Accept header
+    # (or ?format=json|xml|msgpack). JSON is always available.
+    #
+    #   formats :json, :xml, :msgpack
+    # ---------------------------------------------------------------------------
+    macro formats(*fmts)
+      @@_pika_formats = [{% for f in fmts %}{{ f }}, {% end %}] of Symbol
+      @@_pika_formats << :json unless @@_pika_formats.includes?(:json)
     end
 
     # ---------------------------------------------------------------------------
@@ -767,6 +783,27 @@ module Pika
             env.response.content_type = "application/json"
             result = ({{ r[:handler].body }})
             @@_pika_after_hooks.each(&.call(_pika_env))
+
+            # Content negotiation: transcode the JSON body to the requested
+            # format when the API opts in via `formats`. Plain-text (non-JSON)
+            # responses pass through untouched.
+            unless @@_pika_formats.empty?
+              if result
+                _pika_fmt = Pika::Serializer.negotiate(_pika_env, @@_pika_formats)
+                if _pika_fmt != :json && (_pika_any = Pika::Serializer.try_parse(result.to_s))
+                  case _pika_fmt
+                  when :xml
+                    _pika_env.response.content_type = Pika::Serializer::CONTENT_TYPES[:xml]
+                    result = Pika::Serializer.to_xml(_pika_any)
+                  when :msgpack
+                    _pika_env.response.content_type = Pika::Serializer::CONTENT_TYPES[:msgpack]
+                    _pika_env.response.write(Pika::Serializer.to_msgpack(_pika_any))
+                    result = nil
+                  end
+                end
+              end
+            end
+
             {% if r[:verb] == "delete" %}
               # Sensible verb default: an empty delete body becomes 204 No Content,
               # unless the handler set an explicit non-200 status itself.
