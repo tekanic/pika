@@ -53,7 +53,7 @@ MyAPI.run  # 0.0.0.0:3000
 
 - **Routing** — `resource`, `namespace`, `route_param`, `version`, `mount`; hand-rolled router on Crystal's stdlib `HTTP::Server`, zero external dependencies
 - **Params** — `requires`/`optional` with type coercion (`String`, `Int32`, `Int64`, `Float64`, `Bool`, `UUID`, `Time`, `Array(T)`, `Pika.object` nested structs, nilable variants); `regexp`, `values`, `length` constraints; `mutually_exclusive`, `at_least_one_of`, `exactly_one_of`; `params_from ModelClass` to derive params from a Clear model column schema
-- **Request bodies** — JSON, `application/x-www-form-urlencoded`, and `multipart/form-data` (file uploads via `Pika::UploadedFile`) all decode into the same typed `declared_params`
+- **Request bodies** — JSON, `application/x-www-form-urlencoded`, `multipart/form-data` (file uploads via `Pika::UploadedFile`), plus inbound `application/x-msgpack` all decode into the same typed `declared_params`
 - **Response control** — set the status and headers from any handler with `status 201` / `header "Location", ...`; sensible verb defaults (empty `delete` → `204 No Content`)
 - **Hooks** — `before`/`after` blocks scoped per resource/namespace; errors raised in hooks are caught and formatted
 - **Helpers** — `helpers` block for class-level helper methods callable directly from handlers
@@ -61,7 +61,7 @@ MyAPI.run  # 0.0.0.0:3000
 - **Errors** — `Pika::Error` hierarchy with pluggable formatters: `error_formatter :rfc7807` (default), `:grape`, `:jsonapi`
 - **OpenAPI 3.1** — full spec via `MyAPI.openapi_doc`; `info title:, version:, description:` macro; `:param` → `{param}` path conversion; `returns status, Entity` documents typed responses with `components/schemas` `$ref`s; raised error classes and validation 422s surface automatically
 - **Scalar UI** — `docs at: "/docs"` mounts an interactive API explorer + JSON spec endpoint directly on the API router
-- **Content negotiation** — opt-in `formats :json, :xml, :msgpack`; handlers keep returning JSON and Pika transcodes to XML or MessagePack per the request's `Accept` header (or `?format=`). Both encoders are hand-rolled — still zero dependencies
+- **Content negotiation** — opt-in `formats :json, :msgpack`; handlers keep returning JSON and Pika transcodes to MessagePack per the request's `Accept` header (or `?format=`), both inbound and outbound. Hand-rolled — still zero dependencies
 - **Streaming & SSE** — `stream do |io| … end` for chunked bodies and `sse do |s| … end` for Server-Sent Events (`s.event`/`s.json`/`s.comment`, auto-flushed); async producers compose naturally via Crystal fibers
 - **Testing** — `MyAPI.request(:post, "/users", json: {...})` drives the full middleware/handler chain in-process and returns a structured response — no socket
 - **CORS** — `cors origins: [...], credentials: true`; automatic preflight (`OPTIONS`) handling
@@ -444,11 +444,11 @@ Nested values are validated structurally: a missing required field (or a wrong t
 
 ## Content negotiation
 
-Pika is JSON-first, but a single macro opts an API into **XML** and **MessagePack** as well. Handlers keep returning JSON exactly as before — Pika transcodes the response to the format the client asks for, so there's nothing to change in your handler code:
+Pika is JSON-first, but a single macro opts an API into **MessagePack** as well. Handlers keep returning JSON exactly as before — Pika transcodes the response to the format the client asks for, so there's nothing to change in your handler code:
 
 ```crystal
 class MyAPI < Pika::API
-  formats :json, :xml, :msgpack   # JSON is always available
+  formats :json, :msgpack   # JSON is always available
 
   resource :widgets do
     get do
@@ -463,21 +463,38 @@ The format is chosen per request:
 | Request | Response |
 |---|---|
 | (default) | `application/json` |
-| `Accept: application/xml` | `application/xml` |
 | `Accept: application/x-msgpack` | `application/x-msgpack` (binary) |
-| `?format=json\|xml\|msgpack` | overrides the `Accept` header |
+| `?format=json\|msgpack` | overrides the `Accept` header |
 
 ```sh
 curl  https://api.example.com/widgets                          # → JSON
-curl -H "Accept: application/xml"        …/widgets             # → <response><id>1</id>…</response>
 curl -H "Accept: application/x-msgpack"  …/widgets             # → MessagePack bytes
 ```
 
 Notes:
 
 - **Opt-in, zero-cost by default.** Without the `formats` macro there is no negotiation and no per-request overhead — the JSON path is untouched.
-- **Still zero dependencies.** The XML and MessagePack encoders are hand-rolled over the parsed JSON tree; Pika pulls in no serialization shards.
+- **Still zero dependencies.** The MessagePack encoder/decoder is hand-rolled over the parsed JSON tree; Pika pulls in no serialization shards.
 - A non-JSON handler body (plain text) is passed through unchanged. Error responses are emitted by the error formatter (JSON / problem+json).
+
+### Inbound MessagePack
+
+Negotiation is two-directional: clients can also **send** a MessagePack request body, and it decodes into the same typed `declared_params` as JSON — no per-route changes. The `Content-Type` selects the decoder:
+
+| `Content-Type` | Decoded as |
+|---|---|
+| `application/json` | JSON |
+| `application/x-www-form-urlencoded` | form fields |
+| `multipart/form-data` | text fields + uploaded files |
+| `application/x-msgpack` | MessagePack |
+
+```sh
+# Same endpoint, two encodings of the same payload:
+curl -H "Content-Type: application/json"      -d '{"name":"ada","age":30}'  …/things
+curl -H "Content-Type: application/x-msgpack" --data-binary @payload.msgpack …/things
+```
+
+MessagePack preserves types exactly, so it round-trips losslessly with the response encoder. A malformed MessagePack body is treated as "no body" — required params then fail validation with a `422`.
 
 ---
 
@@ -1440,7 +1457,7 @@ mount V2::UsersAPI
 | v0.7 — authentication strategies (`pika-auth` shard) | ✅ complete |
 | v0.8 — header and Accept-header versioning | ✅ complete |
 | v0.9 — response control, typed response/error schemas, UUID/Time/Array/nested-object params, file uploads, test harness, CORS, observability, graceful shutdown | ✅ complete |
-| v0.10 — XML and MessagePack response formatters | ✅ complete |
+| v0.10 — MessagePack content negotiation (in + out) | ✅ complete |
 | v0.11 — async/streaming responses (chunked + SSE) | ✅ complete |
 | v1.0 — API freeze, docs site, launch | planned |
 

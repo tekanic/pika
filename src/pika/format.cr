@@ -3,15 +3,14 @@ require "http/server"
 
 module Pika
   # Response content negotiation. Handlers (and entities) produce JSON; when an
-  # API opts in with the `formats` macro, Pika transcodes that JSON to XML or
+  # API opts in with the `formats` macro, Pika transcodes that JSON to
   # MessagePack based on the request's Accept header (or a `?format=` override).
   #
-  # Both encoders are hand-rolled over a parsed JSON::Any tree, so this adds no
-  # external dependencies — consistent with Pika's zero-dep stance.
+  # The encoder/decoder are hand-rolled over a parsed JSON::Any tree, so this
+  # adds no external dependencies — consistent with Pika's zero-dep stance.
   module Serializer
     CONTENT_TYPES = {
       json:    "application/json",
-      xml:     "application/xml",
       msgpack: "application/x-msgpack",
     }
 
@@ -20,17 +19,14 @@ module Pika
     def self.negotiate(env : HTTP::Server::Context, allowed : Array(Symbol)) : Symbol
       if f = env.request.query_params["format"]?
         sym = case f
-              when "xml"            then :xml
-              when "msgpack", "mp"  then :msgpack
-              when "json"           then :json
-              else                       :json
+              when "msgpack", "mp" then :msgpack
+              else                      :json
               end
         return sym if allowed.includes?(sym)
       end
 
       accept = env.request.headers["Accept"]? || ""
       return :msgpack if accept.includes?("msgpack") && allowed.includes?(:msgpack)
-      return :xml if accept.includes?("xml") && allowed.includes?(:xml)
       :json
     end
 
@@ -41,44 +37,6 @@ module Pika
       JSON.parse(body)
     rescue JSON::ParseException
       nil
-    end
-
-    # ---- XML -----------------------------------------------------------------
-
-    def self.to_xml(any : JSON::Any, root : String = "response") : String
-      String.build do |io|
-        io << %(<?xml version="1.0" encoding="UTF-8"?>)
-        xml_node(io, root, any)
-      end
-    end
-
-    private def self.xml_node(io : IO, name : String, any : JSON::Any) : Nil
-      tag = xml_name(name)
-      case raw = any.raw
-      when Hash
-        io << "<" << tag << ">"
-        raw.each { |k, v| xml_node(io, k, v) }
-        io << "</" << tag << ">"
-      when Array
-        io << "<" << tag << ">"
-        raw.each { |v| xml_node(io, "item", v) }
-        io << "</" << tag << ">"
-      when Nil
-        io << "<" << tag << "/>"
-      else
-        io << "<" << tag << ">" << xml_escape(raw.to_s) << "</" << tag << ">"
-      end
-    end
-
-    private def self.xml_escape(s : String) : String
-      s.gsub('&', "&amp;").gsub('<', "&lt;").gsub('>', "&gt;")
-    end
-
-    # Coerce a JSON key into a valid XML element name.
-    private def self.xml_name(name : String) : String
-      cleaned = name.gsub(/[^a-zA-Z0-9_.\-]/, "_")
-      cleaned = "_#{cleaned}" if cleaned.empty? || !cleaned[0].ascii_letter? && cleaned[0] != '_'
-      cleaned
     end
 
     # ---- MessagePack ---------------------------------------------------------
@@ -155,6 +113,70 @@ module Pika
       else
         io.write_byte(0xdf_u8); io.write_bytes(n.to_u32, IO::ByteFormat::BigEndian)
       end
+    end
+
+    # ---- MessagePack decode --------------------------------------------------
+
+    # Decode a MessagePack payload into a JSON::Any tree. Types are preserved, so
+    # this round-trips losslessly with to_msgpack. Raises on malformed input.
+    def self.from_msgpack(bytes : Bytes) : JSON::Any
+      decode_msgpack(IO::Memory.new(bytes))
+    end
+
+    private def self.decode_msgpack(io : IO) : JSON::Any
+      byte = io.read_byte
+      raise "msgpack: unexpected end of input" unless byte
+
+      case byte
+      when 0x00..0x7f then JSON::Any.new(byte.to_i64)                # positive fixint
+      when 0xe0..0xff then JSON::Any.new(byte.to_i8!.to_i64)         # negative fixint
+      when 0x80..0x8f then mp_map(io, (byte & 0x0f).to_i)           # fixmap
+      when 0x90..0x9f then mp_array(io, (byte & 0x0f).to_i)         # fixarray
+      when 0xa0..0xbf then JSON::Any.new(mp_str(io, (byte & 0x1f).to_i)) # fixstr
+      when 0xc0 then JSON::Any.new(nil)
+      when 0xc2 then JSON::Any.new(false)
+      when 0xc3 then JSON::Any.new(true)
+      when 0xca then JSON::Any.new(io.read_bytes(Float32, IO::ByteFormat::BigEndian).to_f64)
+      when 0xcb then JSON::Any.new(io.read_bytes(Float64, IO::ByteFormat::BigEndian))
+      when 0xcc then JSON::Any.new(io.read_byte.not_nil!.to_i64)
+      when 0xcd then JSON::Any.new(io.read_bytes(UInt16, IO::ByteFormat::BigEndian).to_i64)
+      when 0xce then JSON::Any.new(io.read_bytes(UInt32, IO::ByteFormat::BigEndian).to_i64)
+      when 0xcf then JSON::Any.new(io.read_bytes(UInt64, IO::ByteFormat::BigEndian).to_i64!)
+      when 0xd0 then JSON::Any.new(io.read_bytes(Int8, IO::ByteFormat::BigEndian).to_i64)
+      when 0xd1 then JSON::Any.new(io.read_bytes(Int16, IO::ByteFormat::BigEndian).to_i64)
+      when 0xd2 then JSON::Any.new(io.read_bytes(Int32, IO::ByteFormat::BigEndian).to_i64)
+      when 0xd3 then JSON::Any.new(io.read_bytes(Int64, IO::ByteFormat::BigEndian))
+      when 0xd9 then JSON::Any.new(mp_str(io, io.read_byte.not_nil!.to_i))
+      when 0xda then JSON::Any.new(mp_str(io, io.read_bytes(UInt16, IO::ByteFormat::BigEndian).to_i))
+      when 0xdb then JSON::Any.new(mp_str(io, io.read_bytes(UInt32, IO::ByteFormat::BigEndian).to_i))
+      when 0xdc then mp_array(io, io.read_bytes(UInt16, IO::ByteFormat::BigEndian).to_i)
+      when 0xdd then mp_array(io, io.read_bytes(UInt32, IO::ByteFormat::BigEndian).to_i)
+      when 0xde then mp_map(io, io.read_bytes(UInt16, IO::ByteFormat::BigEndian).to_i)
+      when 0xdf then mp_map(io, io.read_bytes(UInt32, IO::ByteFormat::BigEndian).to_i)
+      else
+        raise "msgpack: unsupported byte 0x#{byte.to_s(16)}"
+      end
+    end
+
+    private def self.mp_str(io : IO, len : Int32) : String
+      bytes = Bytes.new(len)
+      io.read_fully(bytes)
+      String.new(bytes)
+    end
+
+    private def self.mp_array(io : IO, n : Int32) : JSON::Any
+      arr = Array(JSON::Any).new(n)
+      n.times { arr << decode_msgpack(io) }
+      JSON::Any.new(arr)
+    end
+
+    private def self.mp_map(io : IO, n : Int32) : JSON::Any
+      h = {} of String => JSON::Any
+      n.times do
+        k = decode_msgpack(io)
+        h[k.as_s? || k.to_s] = decode_msgpack(io)
+      end
+      JSON::Any.new(h)
     end
   end
 end

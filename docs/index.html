@@ -605,7 +605,7 @@
       <div class="feat">
         <div class="feat-icon">🔄</div>
         <h3>Content negotiation</h3>
-        <p>Opt in with <code>formats :json, :xml, :msgpack</code> — handlers keep returning JSON and Pika transcodes to XML or MessagePack per the request's <code>Accept</code> header. Both encoders are hand-rolled, so it stays zero-dependency.</p>
+        <p>Opt in with <code>formats :json, :msgpack</code> — handlers keep returning JSON and Pika transcodes to MessagePack per the request's <code>Accept</code> header (and decodes MessagePack request bodies too). Hand-rolled, so it stays zero-dependency.</p>
       </div>
       <div class="feat">
         <div class="feat-icon">📡</div>

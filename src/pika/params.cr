@@ -2,6 +2,7 @@ require "json"
 require "http"
 require "./error"
 require "./upload"
+require "./format"
 
 module Pika
   # Extracts request parameters, searching query string, path params (populated
@@ -9,6 +10,7 @@ module Pika
   #   application/json                   → object keys
   #   application/x-www-form-urlencoded  → form fields
   #   multipart/form-data                → text fields + uploaded files
+  #   application/x-msgpack              → object keys (types preserved)
   module Params
     alias Parsed = {raw: Hash(String, String), files: Hash(String, UploadedFile)}
 
@@ -29,6 +31,8 @@ module Pika
         URI::Params.parse(body).each { |k, v| raw[k] = v } unless body.empty?
       elsif ct.includes?("multipart/form-data")
         parse_multipart(env, raw, files)
+      elsif ct.includes?("msgpack")
+        parse_msgpack_body(env, raw)
       end
 
       {raw: raw, files: files}
@@ -43,19 +47,35 @@ module Pika
       body = env.request.body.try(&.gets_to_end) || ""
       return if body.empty?
       begin
-        parsed = JSON.parse(body)
-        if obj = parsed.as_h?
-          obj.each do |k, v|
-            raw[k] = case v.raw
-                      when Int64   then v.as_i64.to_s
-                      when Float64 then v.as_f.to_s
-                      when Bool    then v.as_bool.to_s
-                      when String  then v.as_s
-                      else              v.to_json
-                      end
-          end
-        end
+        absorb_object(JSON.parse(body), raw)
       rescue JSON::ParseException
+      end
+    end
+
+    private def self.parse_msgpack_body(env : HTTP::Server::Context, raw : Hash(String, String)) : Nil
+      bytes = env.request.body.try(&.getb_to_end)
+      return unless bytes && !bytes.empty?
+      begin
+        absorb_object(Pika::Serializer.from_msgpack(bytes), raw)
+      rescue
+        # Malformed MessagePack → leave the body out.
+      end
+    end
+
+    # Flatten a decoded top-level object into the raw param hash. Scalars become
+    # their string form; arrays and nested objects become JSON strings, matching
+    # how Array(T) and Pika.object params are validated.
+    private def self.absorb_object(any : JSON::Any, raw : Hash(String, String)) : Nil
+      obj = any.as_h?
+      return unless obj
+      obj.each do |k, v|
+        raw[k] = case r = v.raw
+                  when Int64   then r.to_s
+                  when Float64 then r.to_s
+                  when Bool    then r.to_s
+                  when String  then r
+                  else              v.to_json
+                  end
       end
     end
 

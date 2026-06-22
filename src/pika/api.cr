@@ -189,10 +189,10 @@ module Pika
 
     # ---------------------------------------------------------------------------
     # formats — enable response content negotiation. Handlers keep returning
-    # JSON; Pika transcodes to XML/MessagePack per the request Accept header
-    # (or ?format=json|xml|msgpack). JSON is always available.
+    # JSON; Pika transcodes to MessagePack per the request Accept header
+    # (or ?format=json|msgpack). JSON is always available.
     #
-    #   formats :json, :xml, :msgpack
+    #   formats :json, :msgpack
     # ---------------------------------------------------------------------------
     macro formats(*fmts)
       @@_pika_formats = [{% for f in fmts %}{{ f }}, {% end %}] of Symbol
@@ -830,16 +830,10 @@ module Pika
             unless @@_pika_formats.empty?
               if result
                 _pika_fmt = Pika::Serializer.negotiate(_pika_env, @@_pika_formats)
-                if _pika_fmt != :json && (_pika_any = Pika::Serializer.try_parse(result.to_s))
-                  case _pika_fmt
-                  when :xml
-                    _pika_env.response.content_type = Pika::Serializer::CONTENT_TYPES[:xml]
-                    result = Pika::Serializer.to_xml(_pika_any)
-                  when :msgpack
-                    _pika_env.response.content_type = Pika::Serializer::CONTENT_TYPES[:msgpack]
-                    _pika_env.response.write(Pika::Serializer.to_msgpack(_pika_any))
-                    result = nil
-                  end
+                if _pika_fmt == :msgpack && (_pika_any = Pika::Serializer.try_parse(result.to_s))
+                  _pika_env.response.content_type = Pika::Serializer::CONTENT_TYPES[:msgpack]
+                  _pika_env.response.write(Pika::Serializer.to_msgpack(_pika_any))
+                  result = nil
                 end
               end
             end

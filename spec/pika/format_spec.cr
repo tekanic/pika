@@ -8,36 +8,6 @@ private def ctx_with(accept : String = "", query : String = "") : HTTP::Server::
 end
 
 # ---------------------------------------------------------------------------
-# Serializer — XML
-# ---------------------------------------------------------------------------
-
-describe "Pika::Serializer.to_xml" do
-  it "renders an object as nested elements under a root" do
-    xml = Pika::Serializer.to_xml(JSON.parse(%({"id":1,"name":"gadget"})))
-    xml.should start_with(%(<?xml version="1.0" encoding="UTF-8"?>))
-    xml.should contain("<response>")
-    xml.should contain("<id>1</id>")
-    xml.should contain("<name>gadget</name>")
-    xml.should contain("</response>")
-  end
-
-  it "renders arrays as repeated <item> elements" do
-    xml = Pika::Serializer.to_xml(JSON.parse(%({"tags":["a","b"]})))
-    xml.should contain("<tags><item>a</item><item>b</item></tags>")
-  end
-
-  it "escapes XML special characters" do
-    xml = Pika::Serializer.to_xml(JSON.parse(%({"v":"a&b<c>d"})))
-    xml.should contain("<v>a&amp;b&lt;c&gt;d</v>")
-  end
-
-  it "renders null as a self-closing element" do
-    xml = Pika::Serializer.to_xml(JSON.parse(%({"x":null})))
-    xml.should contain("<x/>")
-  end
-end
-
-# ---------------------------------------------------------------------------
 # Serializer — MessagePack (assert exact wire bytes)
 # ---------------------------------------------------------------------------
 
@@ -78,14 +48,10 @@ end
 # ---------------------------------------------------------------------------
 
 describe "Pika::Serializer.negotiate" do
-  all = [:json, :xml, :msgpack]
+  all = [:json, :msgpack]
 
   it "defaults to JSON" do
     Pika::Serializer.negotiate(ctx_with, all).should eq(:json)
-  end
-
-  it "selects XML from the Accept header" do
-    Pika::Serializer.negotiate(ctx_with(accept: "application/xml"), all).should eq(:xml)
   end
 
   it "selects MessagePack from the Accept header" do
@@ -93,11 +59,11 @@ describe "Pika::Serializer.negotiate" do
   end
 
   it "honours ?format= override" do
-    Pika::Serializer.negotiate(ctx_with(query: "format=xml"), all).should eq(:xml)
+    Pika::Serializer.negotiate(ctx_with(query: "format=msgpack"), all).should eq(:msgpack)
   end
 
   it "falls back to JSON for a format not in the allowed set" do
-    Pika::Serializer.negotiate(ctx_with(accept: "application/xml"), [:json]).should eq(:json)
+    Pika::Serializer.negotiate(ctx_with(accept: "application/x-msgpack"), [:json]).should eq(:json)
   end
 end
 
@@ -106,7 +72,7 @@ end
 # ---------------------------------------------------------------------------
 
 class FormatAPI < Pika::API
-  formats :json, :xml, :msgpack
+  formats :json, :msgpack
 
   resource :widgets do
     get do
@@ -122,13 +88,6 @@ describe "content negotiation through the API" do
     r.json["name"].as_s.should eq("gadget")
   end
 
-  it "returns XML when the client asks for it" do
-    r = FormatAPI.request(:get, "/widgets", headers: HTTP::Headers{"Accept" => "application/xml"})
-    r.headers["Content-Type"].should contain("application/xml")
-    r.body.should contain("<name>gadget</name>")
-    r.body.should contain("<tags><item>a</item><item>b</item></tags>")
-  end
-
   it "returns MessagePack when the client asks for it" do
     r = FormatAPI.request(:get, "/widgets", headers: HTTP::Headers{"Accept" => "application/x-msgpack"})
     r.headers["Content-Type"].should contain("application/x-msgpack")
@@ -137,7 +96,7 @@ describe "content negotiation through the API" do
   end
 
   it "honours the ?format= query override" do
-    r = FormatAPI.request(:get, "/widgets", query: "format=xml")
-    r.headers["Content-Type"].should contain("application/xml")
+    r = FormatAPI.request(:get, "/widgets", query: "format=msgpack")
+    r.headers["Content-Type"].should contain("application/x-msgpack")
   end
 end
