@@ -349,11 +349,11 @@ A handler that sets an explicit status always wins; the default only applies whe
 Raise any `Pika::Error` subclass — Pika catches it and renders the appropriate HTTP status and body:
 
 ```crystal
-raise Pika::UnauthorizedError.new           # 401
-raise Pika::ForbiddenError.new              # 403
-raise Pika::NotFoundError.new("No widget")  # 404
-raise Pika::ConflictError.new               # 409
-raise Pika::UnprocessableError.new("Bad")   # 422
+raise Pika::BadRequestError.new("Bad body")  # 400
+raise Pika::UnauthorizedError.new            # 401
+raise Pika::ForbiddenError.new               # 403
+raise Pika::NotFoundError.new("No widget")   # 404
+raise Pika::ConflictError.new                # 409
 ```
 
 Param validation failures return 422 with a structured `errors` array automatically.
@@ -365,6 +365,24 @@ class MyAPI < Pika::API
   error_formatter :jsonapi   # or :grape, :rfc7807 (default)
 end
 ```
+
+### Problem-type URIs (RFC 7807)
+
+The default RFC 7807 formatter gives each error a specific, meaningful `type` URI — built from each error's `problem_type` slug — rather than the generic `about:blank`. Each field error's `message` is a full, humanized sentence (the field name de-snake-cased and capitalized, e.g. `first_name` → "First name"), while the machine-readable `field` key is left untouched. So a validation failure on a missing `title` is:
+
+```jsonc
+{"type":"/problems/validation","title":"Validation Failed","status":422,"detail":"Request failed validation.",
+ "errors":[{"field":"title","message":"Title is required"}]}
+```
+
+Each error class maps to a slug (`ValidationError` → `validation`, `NotFoundError` → `not-found`, …; a bare `Pika::Error` derives one from its status). Point the base at your hosted error docs so the `type` is dereferenceable:
+
+```crystal
+Pika::ErrorFormatter::RFC7807.base_uri = "https://docs.myapp.com/errors"
+# → "https://docs.myapp.com/errors/validation"
+```
+
+The JSON:API formatter carries the same identifier as each error's `code`.
 
 ---
 
@@ -494,7 +512,9 @@ curl -H "Content-Type: application/json"      -d '{"name":"ada","age":30}'  …/
 curl -H "Content-Type: application/x-msgpack" --data-binary @payload.msgpack …/things
 ```
 
-MessagePack preserves types exactly, so it round-trips losslessly with the response encoder. A malformed MessagePack body is treated as "no body" — required params then fail validation with a `422`.
+MessagePack preserves types exactly, so it round-trips losslessly with the response encoder.
+
+A request body that cannot be decoded — malformed JSON or MessagePack — returns **`400 Bad Request`** (`Pika::BadRequestError`). This is distinct from a well-formed body that is simply missing a required field, which returns `422` from validation. JSON and MessagePack are handled identically here.
 
 ---
 
@@ -1424,7 +1444,7 @@ mount V2::UsersAPI
 | `optional :age, type: Integer, default: 0` | `optional age : Int32 = 0` | Default inline |
 | `params[:name]` | `declared_params.name` | Typed struct, not hash |
 | `present obj, with: Entity` | `present obj, using: Entity` | `using:` keyword |
-| `error!("msg", 422)` | `raise Pika::UnprocessableError.new("msg")` | Typed errors |
+| `error!("msg", 422)` | `raise Pika::Error.new("msg", 422)` | Typed errors |
 | `mount API => "/path"` | `mount API` | Path set on the sub-API |
 | `before { ... }` | `before do \|env\| ... end` | Explicit env |
 | `helpers { def foo; end }` | `helpers do; def self.foo; end; end` | Class methods |

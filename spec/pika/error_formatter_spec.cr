@@ -101,16 +101,60 @@ describe "Pika::ErrorFormatter::RFC7807" do
     json = JSON.parse(body)
     json["status"].as_i.should eq(401)
   end
+
+  it "emits a meaningful, problem-specific type URI (not about:blank)" do
+    ctx = make_ctx
+    validation = Pika::ValidationError.new([{field: "title", message: "is required"}])
+    JSON.parse(Pika::ErrorFormatter::RFC7807.format_validation(ctx, validation))["type"].as_s.should eq("/problems/validation")
+
+    JSON.parse(Pika::ErrorFormatter::RFC7807.format_error(make_ctx, Pika::NotFoundError.new))["type"].as_s.should eq("/problems/not-found")
+    JSON.parse(Pika::ErrorFormatter::RFC7807.format_error(make_ctx, Pika::ConflictError.new))["type"].as_s.should eq("/problems/conflict")
+    # Generic Error derives its slug from the status code.
+    JSON.parse(Pika::ErrorFormatter::RFC7807.format_error(make_ctx, Pika::Error.new("x", 422)))["type"].as_s.should eq("/problems/unprocessable-entity")
+  end
+
+  it "honours a configurable base URI" do
+    Pika::ErrorFormatter::RFC7807.base_uri = "https://docs.example.com/errors"
+    begin
+      body = Pika::ErrorFormatter::RFC7807.format_error(make_ctx, Pika::NotFoundError.new)
+      JSON.parse(body)["type"].as_s.should eq("https://docs.example.com/errors/not-found")
+    ensure
+      Pika::ErrorFormatter::RFC7807.base_uri = "/problems"
+    end
+  end
+end
+
+describe "humanized validation messages" do
+  it "prepends the humanized field name to the predicate" do
+    err = Pika::ValidationError.new([{field: "title", message: "is required"}])
+    err.humanized_fields.first.should eq({field: "title", message: "Title is required"})
+  end
+
+  it "de-snake-cases multi-word field names" do
+    err = Pika::ValidationError.new([{field: "first_name", message: "is required"}])
+    err.humanized_fields.first[:message].should eq("First name is required")
+  end
+
+  it "leaves cross-field (base) errors as complete sentences" do
+    err = Pika::ValidationError.new([{field: "base", message: "email, phone are mutually exclusive"}])
+    err.humanized_fields.first.should eq({field: "base", message: "email, phone are mutually exclusive"})
+  end
+
+  it "surfaces the humanized message in the default RFC 7807 body" do
+    body = Pika::ErrorFormatter::RFC7807.format_validation(
+      make_ctx, Pika::ValidationError.new([{field: "title", message: "is required"}]))
+    JSON.parse(body)["errors"][0]["message"].as_s.should eq("Title is required")
+  end
 end
 
 describe "Pika::ErrorFormatter::Grape" do
-  it "format_validation returns {error: message}" do
+  it "format_validation returns {error: message} with a humanized message" do
     ctx = make_ctx
     err = Pika::ValidationError.new([{field: "name", message: "is required"}])
     body = Pika::ErrorFormatter::Grape.format_validation(ctx, err)
     ctx.response.status_code.should eq(422)
     json = JSON.parse(body)
-    json["error"].as_s.should contain("name")
+    json["error"].as_s.should eq("Name is required")
   end
 
   it "format_error returns {error: message}" do
@@ -133,6 +177,7 @@ describe "Pika::ErrorFormatter::JSONAPI" do
     json = JSON.parse(body)
     json["errors"][0]["title"].as_s.should eq("name")
     json["errors"][0]["status"].as_s.should eq("422")
+    json["errors"][0]["code"].as_s.should eq("validation")
   end
 
   it "format_error returns {errors: [{title, status}]}" do

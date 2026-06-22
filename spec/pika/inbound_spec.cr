@@ -56,3 +56,27 @@ describe "MessagePack request bodies" do
     r.status.should eq(422)
   end
 end
+
+# A body that cannot be decoded is a 400 (distinct from a well-formed body that
+# is missing a field, which is a 422). JSON and MessagePack behave identically.
+describe "malformed request bodies" do
+  it "returns 400 for a malformed JSON body" do
+    r = InboundAPI.request(:post, "/things",
+      body: "{not valid json", headers: HTTP::Headers{"Content-Type" => "application/json"})
+    r.status.should eq(400)
+    r.body.should contain("Malformed JSON body")
+  end
+
+  it "returns 400 for a malformed MessagePack body" do
+    r = InboundAPI.request(:post, "/things",
+      body: String.new(Bytes[0xc1_u8]), # 0xc1 is the reserved/never-used byte
+      headers: HTTP::Headers{"Content-Type" => "application/x-msgpack"})
+    r.status.should eq(400)
+    r.body.should contain("Malformed MessagePack body")
+  end
+
+  it "still returns 422 (not 400) for a well-formed body missing a field" do
+    r = InboundAPI.request(:post, "/things", json: {name: "ada"})
+    r.status.should eq(422)
+  end
+end

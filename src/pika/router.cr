@@ -118,7 +118,7 @@ module Pika
       if @draining
         ctx.response.status_code = 503
         ctx.response.content_type = "application/problem+json"
-        ctx.response.print({type: "about:blank", title: "Service Unavailable", status: 503}.to_json)
+        ctx.response.print({type: "#{Pika::ErrorFormatter::RFC7807.base_uri}/service-unavailable", title: "Service Unavailable", status: 503}.to_json)
         return
       end
 
@@ -178,7 +178,7 @@ module Pika
 
       ctx.response.status_code = 404
       ctx.response.content_type = "application/problem+json"
-      ctx.response.print({type: "about:blank", title: "Not Found", status: 404}.to_json)
+      ctx.response.print({type: "#{Pika::ErrorFormatter::RFC7807.base_uri}/not-found", title: "Not Found", status: 404}.to_json)
     end
 
     private def version_match?(entry : RouteEntry, ctx : HTTP::Server::Context) : Bool

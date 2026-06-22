@@ -49,6 +49,7 @@ module Pika
       begin
         absorb_object(JSON.parse(body), raw)
       rescue JSON::ParseException
+        raise Pika::BadRequestError.new("Malformed JSON body")
       end
     end
 
@@ -57,8 +58,10 @@ module Pika
       return unless bytes && !bytes.empty?
       begin
         absorb_object(Pika::Serializer.from_msgpack(bytes), raw)
+      rescue ex : Pika::Error
+        raise ex
       rescue
-        # Malformed MessagePack → leave the body out.
+        raise Pika::BadRequestError.new("Malformed MessagePack body")
       end
     end
 
